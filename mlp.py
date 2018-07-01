@@ -18,6 +18,7 @@ Tensor = Any
 TOPK = 3
 
 VERSION         = 0x01
+PREDICT_ONLY    = False
 
 MAX_MFCC_DEPTH  = 300
 MAX_TRAIN_FILES = None
@@ -26,9 +27,10 @@ TEST_SIZE       = 0.2
 NUM_CLASSES     = 41
 
 BATCH_SIZE  = 32
-NUM_EPOCHS  = 100
-NUM_HIDDEN  = 100
-DROPOUT_COEFF = 0.05
+NUM_EPOCHS  = 50
+NUM_HIDDEN1 = 200
+NUM_HIDDEN2 = 200
+DROPOUT_COEFF = 0.1
 
 
 def find_files(path: str, max_files: Optional[int] = None) -> List[str]:
@@ -136,7 +138,9 @@ class Map3Metric(keras.callbacks.Callback):
     def __init__(self, x_val: NpArray, y_val: NpArray) -> None:
         self.x_val = x_val
         self.y_val = y_val
+
         self.best_map3 = 0.0
+        self.best_epoch = 0
 
     def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
         predict = self.model.predict(x_val)
@@ -145,18 +149,26 @@ class Map3Metric(keras.callbacks.Callback):
 
         if map3 > self.best_map3:
             self.best_map3 = map3
+            self.best_epoch = epoch
+
             self.model.save(get_model_path("val_%.4f" % map3))
             self.model.save(get_best_model_path())
 
 def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
                 NpArray) -> Any:
     """ Creates model and trains it. Returns trained model. """
-    # reg = keras.regularizers.l2(1e-3)
-    reg = None
+    reg = keras.regularizers.l2(1e-4)
+    # reg = None
 
     model = keras.models.Sequential()
     model.add(keras.layers.Flatten(input_shape=x_train.shape[1:]))
-    model.add(keras.layers.Dense(NUM_HIDDEN, kernel_regularizer=reg,
+    model.add(keras.layers.Dense(NUM_HIDDEN1, kernel_regularizer=reg,
+                                 activation='relu'))
+
+    if DROPOUT_COEFF:
+        model.add(keras.layers.Dropout(DROPOUT_COEFF))
+
+    model.add(keras.layers.Dense(NUM_HIDDEN2, kernel_regularizer=reg,
                                  activation='relu'))
 
     if DROPOUT_COEFF:
@@ -167,14 +179,14 @@ def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
 
     model.summary()
 
-    metrics = [Map3Metric(x_val, y_val)]
+    map3 = Map3Metric(x_val, y_val)
     model.compile(loss="categorical_crossentropy", optimizer="adam",
                   metrics=["accuracy"])
 
     model.fit(x_train, y_train, batch_size=BATCH_SIZE, epochs=NUM_EPOCHS,
-              verbose=2, validation_data=[x_val, y_val], callbacks=metrics)
+              verbose=0, validation_data=[x_val, y_val], callbacks=[map3])
 
-    print("best MAP@3 value: %.04f" % metrics[0].best_map3)
+    print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
     return model
 
 def predict(x_test: NpArray) -> NpArray:
@@ -209,7 +221,9 @@ if __name__ == "__main__":
     print("y_train", y_train.shape)
     print("y_val", y_val.shape)
 
-    train_model(x_train, x_val, y_train, y_val)
+    if not PREDICT_ONLY:
+        train_model(x_train, x_val, y_train, y_val)
+
     pred = predict(x_test)
 
     sub = pd.DataFrame({"fname": test_index, "label": pred})
