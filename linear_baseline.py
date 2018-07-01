@@ -13,6 +13,7 @@ from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split
 
 NpArray = Any
+Tensor = Any
 
 TOPK = 3
 
@@ -23,7 +24,7 @@ TEST_SIZE       = 0.2
 NUM_CLASSES     = 41
 
 BATCH_SIZE  = 32
-NUM_EPOCHS  = 400
+NUM_EPOCHS  = 100
 NUM_HIDDEN  = 100
 
 def find_files(path: str, max_files: Optional[int] = None) -> List[str]:
@@ -59,33 +60,42 @@ def load_dataset(files: List[str]) -> NpArray:
     print("shape of data", data.shape)
     return data
 
-# TODO: this function should use K.backend
-# def map3_metric(predict: NpArray, ground_truth: NpArray) -> float:
-#     """ Implements Mean Average Precision @ Top 3. """
-#     results = []
-#     assert(predict.shape[0] == ground_truth.shape[0])
-#
-#     for actual, predicted in zip(ground_truth, predict):
-#         actual, predicted = list(actual), list(predicted)
-#
-#         actual = actual[:TOPK]
-#         predicted = predicted[:TOPK]
-#
-#         score = 0.0
-#         num_hits = 0
-#
-#         for i, p in enumerate(predicted):
-#             if p in actual and p not in predicted[:i]:
-#                 num_hits += 1
-#                 score += num_hits / (i + 1)
-#
-#         if not actual:
-#             results.append(0.0)
-#         else:
-#             results.append(score / min(len(actual), TOPK))
-#
-#     assert(len(results) == predict.shape[0])
-#     return np.mean(results)
+def map3_metric(predict: NpArray, ground_truth: NpArray) -> float:
+    """ Implements Mean Average Precision @ Top 3. """
+    results = []
+    assert(predict.shape[0] == ground_truth.shape[0])
+
+    for actual, pred in zip(ground_truth, predict):
+        actual = np.argmax(actual)
+
+        pred = np.argsort(pred)[-TOPK:]
+        pred = np.flip(pred, axis=0)
+
+        score = 0.0
+        num_hits = 0
+
+        for i, p in enumerate(pred):
+            if p == actual and p not in pred[:i]:
+                num_hits += 1
+                score += num_hits / (i + 1)
+
+        results.append(score)
+
+    assert(len(results) == predict.shape[0])
+    return np.mean(results)
+
+class Map3Metric(keras.callbacks.Callback):
+    """ Keras callback that calculates MAP3 metric. """
+    def __init__(self, x_val: NpArray, y_val: NpArray) -> None:
+        self.x_val = x_val
+        self.y_val = y_val
+        self.best_map3 = 0.0
+
+    def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
+        predict = self.model.predict(x_val)
+        map3 = map3_metric(predict, y_val)
+        print("epoch %d map3 %.04f" % (epoch, map3))
+        self.best_map3 = max(self.best_map3, map3)
 
 def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
                 NpArray) -> Any:
@@ -102,12 +112,15 @@ def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
                                  activation='softmax'))
 
     model.summary()
+
+    metrics = [Map3Metric(x_val, y_val)]
     model.compile(loss="categorical_crossentropy", optimizer="adam",
                   metrics=["accuracy"])
-                  # metrics=[map3_metric, "accuracy"])
 
     model.fit(x_train, y_train, batch_size=BATCH_SIZE, epochs=NUM_EPOCHS,
-              verbose=2, validation_data=[x_val, y_val])
+              verbose=2, validation_data=[x_val, y_val], callbacks=metrics)
+
+    print("best MAP3 value: %.04f" % metrics[0].best_map3)
 
     return model
 
