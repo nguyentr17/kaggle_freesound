@@ -205,7 +205,7 @@ if __name__ == "__main__":
     print("y_train", y_train.shape)
     print("y_val", y_val.shape)
 
-    # train_model(x_train, x_val, y_train, y_val)
+    train_model(x_train, x_val, y_train, y_val)
     pred = predict(x_test)
 
     sub = pd.DataFrame({"fname": test_index, "label": pred})
