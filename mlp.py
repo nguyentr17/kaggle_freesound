@@ -26,8 +26,9 @@ TEST_SIZE       = 0.2
 NUM_CLASSES     = 41
 
 BATCH_SIZE  = 32
-NUM_EPOCHS  = 200
+NUM_EPOCHS  = 100
 NUM_HIDDEN  = 100
+DROPOUT_COEFF = 0.05
 
 
 def find_files(path: str, max_files: Optional[int] = None) -> List[str]:
@@ -157,7 +158,10 @@ def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
     model.add(keras.layers.Flatten(input_shape=x_train.shape[1:]))
     model.add(keras.layers.Dense(NUM_HIDDEN, kernel_regularizer=reg,
                                  activation='relu'))
-    # model.add(keras.layers.Dropout(0.25))
+
+    if DROPOUT_COEFF:
+        model.add(keras.layers.Dropout(DROPOUT_COEFF))
+
     model.add(keras.layers.Dense(NUM_CLASSES, kernel_regularizer=reg,
                                  activation='softmax'))
 
