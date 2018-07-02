@@ -1,6 +1,6 @@
 #!/usr/bin/python3.6
 
-import glob, os, sys
+import glob, multiprocessing, os, sys
 from typing import *
 
 import numpy as np
@@ -137,7 +137,22 @@ def visualize_random_file(test_file: str) -> None:
 
     sys.exit()
 
-def load_dataset(files: List[str]) -> NpArray:
+def read_file(path: str) -> List[NpArray]:
+    """ Reads the wav file and returns a list of np.arrays. """
+    waveform, sr = librosa.core.load(path, sr=SAMPLE_RATE)
+    assert(sr == SAMPLE_RATE)
+    data = []
+
+    if waveform.size == 0:
+        return []    # handle empty files
+
+    for clip in break_waveform_into_clips(waveform):
+        mfcc = librosa.feature.mfcc(clip, sr, n_mfcc=NUM_MFCC_ROWS)
+        data.append(mfcc)
+
+    return data
+
+def load_dataset(files: List[str]) -> List[List[NpArray]]:
     """ Loads a particular dataset. """
     print("loading files, first 5 are:", files[:5])
 
@@ -145,19 +160,6 @@ def load_dataset(files: List[str]) -> NpArray:
     # test_file = "../data/audio_train/8f6071d2.wav"
     # visualize_random_file(test_file)
 
-    data = []
-
-    for i, sample in enumerate(tqdm(files)):
-        waveform, sr = librosa.core.load(sample, sr=SAMPLE_RATE)
-        assert(sr == SAMPLE_RATE)
-
-        if waveform.size == 0:
-            continue    # for empty files, leave all zeros
-
-        for clip in break_waveform_into_clips(waveform):
-            mfcc = librosa.feature.mfcc(clip, sr, n_mfcc=NUM_MFCC_ROWS)
-            data.append(mfcc)
-
-    res = np.array(data)
-    print("shape of data", res.shape)
-    return res
+    pool = multiprocessing.Pool(processes=12)
+    data = [x for x in tqdm(pool.imap(read_file, files), total=len(files))]
+    return data

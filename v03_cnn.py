@@ -40,6 +40,14 @@ def find_files(path: str) -> List[str]:
     print("files: %d files found" % len(files))
     return files
 
+def take_first(x: List[List[NpArray]]) -> NpArray:
+    """ Creates a tensor from list of lists. """
+    null = np.zeros_like(x[0][0])
+    singles = [L[0] if L else null for L in x]
+    res = np.array(singles)
+    print("res.shape", res.shape)
+    return res
+
 def load_data() -> Tuple[NpArray, NpArray, NpArray, List[str], Any]:
     """ Loads all data. """
     train_df = pd.read_csv("../data/train.csv", index_col="fname")
@@ -49,12 +57,16 @@ def load_data() -> Tuple[NpArray, NpArray, NpArray, List[str], Any]:
 
     print("reading train dataset")
     train_files = find_files("../data/audio_train/")
+    print("len(train_files)", len(train_files))
 
     if os.path.exists(train_cache):
         x = pickle.load(open(train_cache, "rb"))
     else:
         x = load_dataset(train_files)
         pickle.dump(x, open(train_cache, "wb"))
+
+    x = take_first(x)
+    print("x.shape", x.shape)
 
     print("reading test dataset")
     test_files = find_files("../data/audio_test/")
@@ -66,6 +78,7 @@ def load_data() -> Tuple[NpArray, NpArray, NpArray, List[str], Any]:
         x_test = load_dataset(test_files)
         pickle.dump(x_test, open(test_cache, "wb"))
 
+    x_test = take_first(x_test)
     mean, std = np.mean(x), np.std(x)
     x = (x - mean) / std
     x_test = (x_test - mean) / std
@@ -177,7 +190,7 @@ def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
     return model
 
-def predict(x_test: NpArray) -> NpArray:
+def predict(x_test: NpArray, label_binarizer: Any) -> NpArray:
     """ Predicts results on test, using the best model. """
     print("predicting results")
     model = keras.models.load_model(get_best_model_path())
@@ -212,7 +225,7 @@ if __name__ == "__main__":
     if not PREDICT_ONLY:
         train_model(x_train, x_val, y_train, y_val)
 
-    pred = predict(x_test)
+    pred = predict(x_test, label_binarizer)
 
     sub = pd.DataFrame({"fname": test_index, "label": pred})
     sub.to_csv("../submissions/%02x.csv" % CODE_VERSION, index=False, header=True)
