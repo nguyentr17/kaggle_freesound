@@ -45,10 +45,23 @@ def take_first(x: List[List[NpArray]]) -> NpArray:
     null = np.zeros_like(x[0][0])
     singles = [L[0] if L else null for L in x]
     res = np.array(singles)
-    print("res.shape", res.shape)
     return res
 
-def load_data() -> Tuple[NpArray, NpArray, NpArray, List[str], Any]:
+def build_train_dataset(x: List[List[NpArray]], y: NpArray, indices:
+                        List[int]) -> \
+                        Tuple[NpArray, NpArray]:
+    """ Builds dataset with multiple items per sample. Returns (x, y). """
+    res_x, res_y = [], []
+
+    for idx in indices:
+        for sample in x[idx]:
+            res_x.append(sample)
+            res_y.append(y[idx])
+
+    return np.array(res_x), np.array(res_y)
+
+def load_data() -> Tuple[NpArray, NpArray, NpArray, NpArray, NpArray,
+                         List[str], Any]:
     """ Loads all data. """
     train_df = pd.read_csv("../data/train.csv", index_col="fname")
 
@@ -65,8 +78,13 @@ def load_data() -> Tuple[NpArray, NpArray, NpArray, List[str], Any]:
         x = load_dataset(train_files)
         pickle.dump(x, open(train_cache, "wb"))
 
-    x = take_first(x)
-    print("x.shape", x.shape)
+    # get whatever data metrics we need
+    label_binarizer = LabelBinarizer()
+    label_binarizer.fit(train_df["label"])
+
+    train_idx, val_idx = train_test_split(range(len(x)), test_size=TEST_SIZE)
+    x_train, y_train = build_train_dataset(x, train_df["label"], train_idx)
+    x_val, y_val = build_train_dataset(x, train_df["label"], val_idx)
 
     print("reading test dataset")
     test_files = find_files("../data/audio_test/")
@@ -79,17 +97,20 @@ def load_data() -> Tuple[NpArray, NpArray, NpArray, List[str], Any]:
         pickle.dump(x_test, open(test_cache, "wb"))
 
     x_test = take_first(x_test)
-    mean, std = np.mean(x), np.std(x)
-    x = (x - mean) / std
+
+    x_joined = np.concatenate([x_train, x_val])
+    mean, std = np.mean(x_joined), np.std(x_joined)
+    x_train = (x_train - mean) / std
+    x_val = (x_val - mean) / std
     x_test = (x_test - mean) / std
 
-    label_binarizer = LabelBinarizer()
-    labels = label_binarizer.fit_transform(train_df["label"])
-    labels_dict = {file: labels[i] for i, file in enumerate(train_df.index)}
-    y = np.array([labels_dict[os.path.basename(file)] for file in train_files])
-    print("y", y.shape)
+    y_train = label_binarizer.transform(y_train)
+    y_val = label_binarizer.transform(y_val)
 
-    return x, y, x_test, test_index, label_binarizer
+    print("x_train.shape", x_train.shape, "y_train.shape", y_train.shape)
+    print("x_val.shape", x_val.shape, "y_val.shape", y_val.shape)
+
+    return x_train, y_train, x_val, y_val, x_test, test_index, label_binarizer
 
 def map3_metric(predict: NpArray, ground_truth: NpArray) -> float:
     """ Implements Mean Average Precision @ Top 3. """
@@ -133,8 +154,8 @@ class Map3Metric(keras.callbacks.Callback):
         self.best_epoch = 0
 
     def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
-        predict = self.model.predict(x_val)
-        map3 = map3_metric(predict, y_val)
+        predict = self.model.predict(self.x_val)
+        map3 = map3_metric(predict, self.y_val)
         print("epoch %d MAP@3 %.4f" % (epoch, map3))
 
         if map3 > self.best_map3:
@@ -214,13 +235,8 @@ def predict(x_test: NpArray, label_binarizer: Any) -> NpArray:
     return joined_pred
 
 if __name__ == "__main__":
-    x, y, x_test, test_index, label_binarizer = load_data()
-
-    x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=TEST_SIZE)
-    print("x_train", x_train.shape)
-    print("x_val", x_val.shape)
-    print("y_train", y_train.shape)
-    print("y_val", y_val.shape)
+    x_train, y_train, x_val, y_val, x_test, test_index, label_binarizer = \
+        load_data()
 
     if not PREDICT_ONLY:
         train_model(x_train, x_val, y_train, y_val)
@@ -228,5 +244,7 @@ if __name__ == "__main__":
     pred = predict(x_test, label_binarizer)
 
     sub = pd.DataFrame({"fname": test_index, "label": pred})
-    sub.to_csv("../submissions/%02x.csv" % CODE_VERSION, index=False, header=True)
+    sub.to_csv("../submissions/%02x.csv" % CODE_VERSION, index=False,
+               header=True)
+
     print("submission has been generated")
