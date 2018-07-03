@@ -18,11 +18,11 @@ Tensor = Any
 
 TOPK = 3
 
-CODE_VERSION    = 0x04
+CODE_VERSION    = 0x05
 DATA_VERSION    = 0x01
-PREDICT_ONLY    = True
 
-ENABLE_KFOLD    = False
+PREDICT_ONLY    = False
+ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
 KFOLDS          = 10
 
@@ -150,15 +150,16 @@ def get_model_path(name: str) -> str:
     """ Builds the path of the model file. """
     return "../models/%02x__%s.hdf5" % (CODE_VERSION, name)
 
-def get_best_model_path() -> str:
+def get_best_model_path(name: str) -> str:
     """ Returns the path of the best model. """
-    return get_model_path("best")
+    return get_model_path("%s_best" % name)
 
 class Map3Metric(keras.callbacks.Callback):
     """ Keras callback that calculates MAP3 metric. """
-    def __init__(self, x_val: NpArray, y_val: NpArray) -> None:
+    def __init__(self, x_val: NpArray, y_val: NpArray, name: str) -> None:
         self.x_val = x_val
         self.y_val = y_val
+        self.name = name
 
         self.best_map3 = 0.0
         self.best_epoch = 0
@@ -172,11 +173,11 @@ class Map3Metric(keras.callbacks.Callback):
             self.best_map3 = map3
             self.best_epoch = epoch
 
-            self.model.save(get_model_path("val_%.4f" % map3))
-            self.model.save(get_best_model_path())
+            self.model.save(get_model_path("%s_val_%.4f" % (self.name, map3)))
+            self.model.save(get_best_model_path(self.name))
 
 def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
-                NpArray) -> Any:
+                NpArray, model_name: str) -> Any:
     """ Creates model and trains it. Returns trained model. """
     x = inp = keras.layers.Input(shape=x_train.shape[1:])
     x = keras.layers.Reshape((x_train.shape[1], x_train.shape[2], 1))(x)
@@ -211,7 +212,7 @@ def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
     model = keras.models.Model(inputs=inp, outputs=out)
     model.summary()
 
-    map3 = Map3Metric(x_val, y_val)
+    map3 = Map3Metric(x_val, y_val, model_name)
     model.compile(loss="categorical_crossentropy", optimizer="adam",
                   metrics=["accuracy"])
 
@@ -221,22 +222,24 @@ def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
     return model
 
-def merge_clip_predictions(pred: NpArray, mode: str) -> NpArray:
+def merge_predictions(pred: NpArray, mode: str, axis: int) -> NpArray:
     """ Merges predictions for all clips and returns a single prediction. """
+    assert(pred.shape[-1] == NUM_CLASSES)
+
     if mode == "mean":
-        return np.mean(pred, axis=0)
+        return np.mean(pred, axis=axis)
     elif mode == "max":
-        return np.max(pred, axis=0)
-    elif mode == "geom_avg":
-        return sp.stats.gmean(pred, axis=0)
+        return np.max(pred, axis=axis)
+    elif mode == "geom_mean":
+        return sp.stats.gmean(pred, axis=axis)
     else:
         assert(False)
 
-def predict(x_test: NpArray, label_binarizer: Any, clips_per_sample: List[int])\
-    -> NpArray:
+def predict(x_test: NpArray, label_binarizer: Any, clips_per_sample: List[int],
+            model_name: str) -> NpArray:
     """ Predicts results on test, using the best model. """
     print("predicting results")
-    model = keras.models.load_model(get_best_model_path())
+    model = keras.models.load_model(get_best_model_path(model_name))
 
     y_test = model.predict(x_test)
     print("y_test.shape after predict", y_test.shape)
@@ -246,13 +249,19 @@ def predict(x_test: NpArray, label_binarizer: Any, clips_per_sample: List[int])\
 
     for count in clips_per_sample:
         if count != 0:
-            y_merged.append(merge_clip_predictions(y_test[pos : pos+count], "max"))
+            y_merged.append(merge_predictions(y_test[pos : pos+count], "max", 0))
         else:
             y_merged.append(np.zeros_like(y_merged[0]))
 
         pos += count
 
     y_test = np.array(y_merged)
+    print("y_test.shape after merge", y_test.shape)
+    return y_test
+
+def encode_predictions(y_test: NpArray) -> NpArray:
+    """ Takes array NUM_SAMPLES x NUM_CLASSES, returns array NUM_SAMPLES
+    of strings."""
     print("y_test.shape after merge", y_test.shape)
 
     # extract top K values
@@ -286,24 +295,32 @@ if __name__ == "__main__":
             clips_per_sample = load_data(train_idx, val_idx)
 
         if not PREDICT_ONLY:
-            train_model(x_train, x_val, y_train, y_val)
+            train_model(x_train, x_val, y_train, y_val, "nofolds")
 
-        pred = predict(x_test, label_binarizer, clips_per_sample)
+        pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
+        pred = encode_predictions(pred)
     else:
-        kf = KFold(n_splits=KFOLDS)
-        folds = list(kf.split(train_indices))
+        kf = KFold(n_splits=KFOLDS, shuffle=False)
+        pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
 
-        for k, (train_sample_idx, test_sample_idx) in enumerate(folds):
+        for k, (train_idx, val_idx) in enumerate(kf.split(train_indices)):
+            print("fold %d ==============================================" % k)
+
             x_train, y_train, x_val, y_val, x_test, label_binarizer, \
                 clips_per_sample = load_data(train_idx, val_idx)
+            name = "fold_%d" % k
 
             if not PREDICT_ONLY:
-                train_model(x_train, x_val, y_train, y_val)
+                train_model(x_train, x_val, y_train, y_val, name)
 
-            pred = predict(x_test, label_binarizer, clips_per_sample)
+            pred[:, k, :] = predict(x_test, label_binarizer, clips_per_sample, name)
+
+        print("before final merge: pred.shape", pred.shape)
+        pred = merge_predictions(pred, "max", axis=1)
+        print("predictions after final merge", pred.shape)
+        pred = encode_predictions(pred)
+        print("predictions after encoding", pred.shape)
 
     sub = pd.DataFrame({"fname": test_idx, "label": pred})
-    sub.to_csv("../submissions/%02x.csv" % CODE_VERSION, index=False,
-               header=True)
-
+    sub.to_csv("../submissions/%02x.csv" % CODE_VERSION, index=False, header=True)
     print("submission has been generated")
