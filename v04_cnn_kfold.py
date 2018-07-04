@@ -316,7 +316,7 @@ if __name__ == "__main__":
             pred[:, k, :] = predict(x_test, label_binarizer, clips_per_sample, name)
 
         print("before final merge: pred.shape", pred.shape)
-        pred = merge_predictions(pred, "max", axis=1)
+        pred = merge_predictions(pred, "geom_mean", axis=1)
         print("predictions after final merge", pred.shape)
         pred = encode_predictions(pred)
         print("predictions after encoding", pred.shape)
