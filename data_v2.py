@@ -378,29 +378,72 @@ class SoundDatagen(keras.utils.Sequence):
 
     def __getitem__(self, idx: int) -> np.array:
         """ Returns a batch. """
-        print("getitem(%d)" % idx)
+        print("-------------------------\ngetitem(%d)" % idx)
 
-        start = bisect.bisect_left(self.clip_offsets, idx * BATCH_SIZE)
-        end = bisect.bisect_right(self.clip_offsets, (idx + 1) * BATCH_SIZE) + 1
+        start_sample, end_sample = idx * BATCH_SIZE, (idx+1) * BATCH_SIZE
+        start = bisect.bisect_left(self.clip_offsets, start_sample)
+        end = bisect.bisect_left(self.clip_offsets, end_sample)
+
+        if self.clip_offsets[end] > end_sample:
+            end -= 1
+
+        print("start_sample", start_sample, "end_sample", end_sample)
+        print("start", start, "end", end)
+        print("clip_offsets[start]", self.clip_offsets[start],
+              "clip_offsets[end]", self.clip_offsets[end])
 
         assert(start < len(self.clip_offsets))
-        assert(end <= len(self.clip_offsets))
-        print("start", start, "end", end)
+        assert(end < len(self.clip_offsets))
+        assert(self.clip_offsets[start] >= start_sample)
+        assert(self.clip_offsets[end] <= end_sample)
+
+        # take last a few clips from the previous file, if necessary
+        if start_sample < self.clip_offsets[start]:
+            print("\tadding head")
+            assert(start > 0)
+            head_clip = read_cached_file(self.files[start - 1])
+            assert(len(head_clip) == self.clips_per_sample[start - 1])
+            print("\tlen(head_clip)", len(head_clip))
+            # print("\thead_clip start ofs", self.clip_offsets[start] - start_sample)
+            head = head_clip[start_sample - self.clip_offsets[start]: ]
+            print("\tlen(head)", len(head))
+        else:
+            head = []
 
         # concatenate all lists of clips into a single list
         clips = sum((read_cached_file(self.files[i]) for i in
-                     range(start, end)), [])
+                     range(start, end)), head)
+        print("len(clips)", len(clips))
+
+        # take first a few clips from the last file, if necessary
+        if len(clips) < BATCH_SIZE:
+            print("\tadding tail")
+            tail_clip = read_cached_file(self.files[end])
+            assert(len(tail_clip) == self.clips_per_sample[end])
+            print("\tlen(tail_clip)", len(tail_clip))
+            print("\tlen(clips)", len(clips))
+            tail = tail_clip[: BATCH_SIZE - len(clips)]
+        else:
+            tail = []
+
+        clips.extend(tail)
+        print("head", len(head), "clips", len(clips), "tail", len(tail))
 
         x = np.array(clips)
         x = (x - data_mean) / data_std
         print("x", x.shape)
+        assert(x.shape[0] == BATCH_SIZE)
 
         if self.labels is not None:
-            y = self.labels[self.clip_offsets[start] : self.clip_offsets[end]]
-            y = label_binarizer.transform(y)
+            # y = self.labels[self.clip_offsets[start] : self.clip_offsets[end]]
+            # y = label_binarizer.transform(y)
+
+            # FIXME: TEMP
+            # y = y[:BATCH_SIZE]
+            y = np.zeros((BATCH_SIZE, 41))
             print("y", y.shape)
 
-            assert(x.shape[0] == y.shape[0])
+            assert(y.shape[0] == BATCH_SIZE)
             return x, y
         else:
             return x, None
