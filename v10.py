@@ -134,8 +134,8 @@ def train_model(train: SoundDatagen, val: SoundDatagen, name: str) -> None:
                   metrics=["accuracy"])
 
     model.fit_generator(train, epochs=NUM_EPOCHS, verbose=1, shuffle=False,
-                        use_multiprocessing=False,
-                        # use_multiprocessing=True, workers=12,
+                        # use_multiprocessing=False,
+                        use_multiprocessing=True, workers=12,
                         validation_data=val, callbacks=[map3])
 
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))

@@ -300,56 +300,42 @@ class SoundDatagen(keras.utils.Sequence):
 
         for file, clip_count, label in zip(self.files, clips_per_sample,
                                            self.labels):
-            print("file=%s clip_count=%d" % (file, clip_count))
+            # print("file=%s clip_count=%d" % (file, clip_count))
             base = 0
 
             # generate as many full batches as we can
             while num_remaining_clips + clip_count - base >= BATCH_SIZE:
-                print("\tnum_remaining_clips=%d clip_count=%d base=%d" %
-                      (num_remaining_clips, clip_count, base))
+                # print("\tnum_remaining_clips=%d clip_count=%d base=%d" %
+                #       (num_remaining_clips, clip_count, base))
                 count = BATCH_SIZE - num_remaining_clips
-                print("\tappending clips (first=%d count=%d)" % (base, count))
+                # print("\tappending clips (first=%d count=%d)" % (base, count))
                 reminder.append(Fragment(file, base, count, label))
 
                 assert(count + num_remaining_clips == BATCH_SIZE)
                 batches.append(reminder)
 
-                s = 0
-                print("counting clips")
-                
-                for frag in batches[-1]:
-                    print("\t", frag.file, frag.base, frag.clip_count)
-                    s += frag.clip_count
-
-                print("total clips count", s)
-                assert(s == BATCH_SIZE)
-
-                # print(batches[-1])
-                # assert(sum(map(lambda f: f.clip_count, batches[-1])) == BATCH_SIZE)
-
                 base += count
                 reminder, num_remaining_clips = [], 0
 
             # put any unused clips into reminder
-            reminder.append(Fragment(file, 0, clip_count, label))
-            num_remaining_clips += clip_count - base
-            print("\treminder: adding (base=%d count=%d) total=%d" %
-                  (base, clip_count, num_remaining_clips))
+            count = clip_count - base
+            reminder.append(Fragment(file, 0, count, label))
+            num_remaining_clips += count
+            # print("\treminder: adding (base=%d count=%d) total=%d" %
+            #       (base, count, num_remaining_clips))
 
         for i, batch in enumerate(batches):
-            print("batch %d" % i)
             assert(sum(map(lambda f: f.clip_count, batch)) == BATCH_SIZE)
 
         # generate last incomplete batch
         if len(reminder):
-            print("appending last reminder, count=%d" % num_remaining_clips)
+            # print("appending last reminder, count=%d" % num_remaining_clips)
             batches.append(reminder)
 
         return batches
 
     def __getitem__(self, idx: int) -> np.array:
         """ Returns a batch. """
-        print("-------------------------\ngetitem(%d)" % idx)
         batch = self.batches[idx]
         x, y = [], []
 
@@ -360,15 +346,13 @@ class SoundDatagen(keras.utils.Sequence):
                 self.last_file_data = clip = read_cached_file(frag.file)
                 self.last_file_name = frag.file
 
-            x.append(clip[frag.base : frag.base + frag.clip_count])
+            for c in clip[frag.base : frag.base + frag.clip_count]:
+                x.append(np.expand_dims(c, 0))
+
             y.extend([frag.label] * frag.clip_count)
 
-            # print("label", frag.label.shape)
-            # print("y", y)
-
-        x_arr, y_arr = np.concatenate(x), np.array(y)
-        print("x", len(x), "y", len(y))
-        print("x_arr", x_arr.shape, "y_arr", y_arr.shape)
+        x_arr = np.concatenate(x)
+        y_arr = np.array(y)
 
         assert(x_arr.shape[0] == BATCH_SIZE or idx == len(self) - 1)
         assert(x_arr.shape[0] == y_arr.shape[0])
