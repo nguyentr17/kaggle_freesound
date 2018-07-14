@@ -284,24 +284,28 @@ class SoundDatagen(keras.utils.Sequence):
     def __init__(self, x: List[str], y: Optional[List[str]]) -> None:
         """ Constructor. """
         self.files = x
-        self.labels = label_binarizer.transform(y)
-        self.batches = self.generate_table()
         self.last_file_name = ""
         self.last_file_data = np.empty(0)
 
+        if y is not None:
+            self.labels = label_binarizer.transform(y)
+        else:
+            self.labels = np.zeros((len(x), NUM_CLASSES))
+
+        self.clips_per_sample = [data_clips_per_sample[s] for s in self.files]
+        self.batches = self.generate_table()
         print("datagen: x %d y %d" % (len(x), len(y) if y is not None else 0))
         assert(y is None or len(x) == len(y))
 
     def generate_table(self) -> List[List[Fragment]]:
         """ Generates table with clip list for every batch.
         Returns list of batches, every batch is a list of Fragments. """
-        clips_per_sample = [data_clips_per_sample[s] for s in self.files]
         batches = []
         reminder: List[Fragment] = []
         num_remaining_clips = 0
-        print("clips_per_sample", clips_per_sample[:100])
+        print("clips_per_sample", self.clips_per_sample[:100])
 
-        for file, clip_count, label in zip(self.files, clips_per_sample,
+        for file, clip_count, label in zip(self.files, self.clips_per_sample,
                                            self.labels):
             # print("file=%s clip_count=%d" % (file, clip_count))
             base = 0

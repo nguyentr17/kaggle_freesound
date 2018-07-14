@@ -25,7 +25,7 @@ NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
 
 # Network hyperparameters
-NUM_EPOCHS      = 50
+NUM_EPOCHS      = 10
 
 
 def map3_metric(predict: np.array, ground_truth: np.array) -> float:
@@ -180,7 +180,8 @@ def predict(datagen: SoundDatagen, model_name: str) -> np.array:
 
     for count in clips_per_sample:
         if count != 0:
-            y_merged.append(merge_predictions(y_test[pos : pos+count], "max", 0))
+            y_merged.append(merge_predictions(y_test[pos : pos + count],
+                                              "max", 0))
         else:
             y_merged.append(np.zeros_like(y_merged[0]))
 
