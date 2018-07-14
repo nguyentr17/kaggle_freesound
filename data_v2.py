@@ -23,6 +23,7 @@ CLIP_DURATION       = 2
 
 MIN_AMP             = 1e-10
 BATCH_SIZE          = 32
+NUM_CLASSES         = 41
 
 ENABLE_DEBUGGING    = False
 
@@ -173,99 +174,6 @@ def find_files(path: str) -> List[str]:
     print("files: %d files found" % len(files))
     return files
 
-'''
-# def load_dataset(files: List[str]) -> List[List[np.array]]:
-#     """ Loads a particular dataset. """
-#     print("loading files, first 5 are:", files[:5])
-#
-#     # test_file = np.random.choice(files)
-#     # test_file = "../data/audio_train/8f6071d2.wav"
-#     # visualize_random_file(test_file)
-#
-#     pool = multiprocessing.Pool(processes=12)
-#     data = [x for x in tqdm(pool.imap(read_file, files), total=len(files))]
-#     return data
-
-def build_train_dataset(x: List[List[np.array]], y: np.array, indices:
-                        List[int]) -> Tuple[np.array, np.array]:
-    """ Builds dataset with multiple items per sample. Returns (x, y). """
-    res_x, res_y = [], []
-
-    for idx in indices:
-        for sample in x[idx]:
-            res_x.append(sample)
-            res_y.append(y[idx])
-
-    return np.array(res_x), np.array(res_y)
-
-def build_test_dataset(x: List[List[np.array]]) -> Tuple[np.array, List[int]]:
-    """ Builds test dataset with multiple clips per sample, which will
-    be joined later somehow (maximum, geom. mean, etc).
-    Returns: (x_test, clips_per_sample). """
-    x_test, clips_per_sample = [], []
-
-    for sample in x:
-        clips_per_sample.append(len(sample))
-
-        for clip in sample:
-            x_test.append(clip)
-
-    return np.array(x_test), clips_per_sample
-
-def load_data(train_idx: np.array, val_idx: np.array) -> \
-              Tuple[np.array, np.array, np.array, np.array, np.array, Any, List[int]]:
-    """ Loads all data. """
-    train_df = pd.read_csv("../data/train.csv", index_col="fname")
-
-    train_cache = "../output/%s_train.pkl" % DATA_VERSION
-    test_cache = "../output/%s_test.pkl" % DATA_VERSION
-
-    print("reading train dataset")
-    # if os.path.exists(train_cache):
-    #     x = pickle.load(open(train_cache, "rb"))
-    # else:
-
-    train_files = find_files("../data/audio_train/")
-    print("len(train_files)", len(train_files))
-    x = load_dataset(train_files)
-
-    # pickle.dump(x, open(train_cache, "wb"))
-
-    # get whatever data metrics we need
-    label_binarizer = LabelBinarizer()
-    label_binarizer.fit(train_df["label"])
-
-    x_train, y_train = build_train_dataset(x, train_df["label"], train_idx)
-    x_val, y_val = build_train_dataset(x, train_df["label"], val_idx)
-
-    print("reading test dataset")
-    # if os.path.exists(test_cache):
-    #     x_test = pickle.load(open(test_cache, "rb"))
-    # else:
-
-    test_files = find_files("../data/audio_test/")
-    print("len(test_files)", len(test_files))
-    x_test = load_dataset(test_files)
-
-    # pickle.dump(x_test, open(test_cache, "wb"))
-
-    x_test, clips_per_sample = build_test_dataset(x_test)
-
-    x_joined = np.concatenate([x_train, x_val])
-    mean, std = np.mean(x_joined), np.std(x_joined)
-    x_train = (x_train - mean) / std
-    x_val = (x_val - mean) / std
-    x_test = (x_test - mean) / std
-
-    y_train = label_binarizer.transform(y_train)
-    y_val = label_binarizer.transform(y_val)
-
-    print("x_train.shape", x_train.shape, "y_train.shape", y_train.shape)
-    print("x_val.shape", x_val.shape, "y_val.shape", y_val.shape)
-
-    return x_train, y_train, x_val, y_val, x_test, label_binarizer, clips_per_sample
-'''
-
 def get_cache_path(path: str) -> str:
     return "../data/cache/%s.fft" % os.path.basename(path)
 
@@ -285,7 +193,8 @@ def get_num_clips(path: str) -> int:
     return len(pickle.load(open(cache_path, "rb")))
 
 def read_cached_file(path: str) -> np.array:
-    """ Reads file from the cache. """
+    """ Reads file from the cache. Returns same data as read_file(),
+    cast to a single np.array. """
     cache_path = get_cache_path(path)
     return pickle.load(open(cache_path, "rb"))
 
@@ -361,96 +270,113 @@ def get_label_binarizer() -> LabelBinarizer:
     return label_binarizer
 
 
+class Fragment:
+    def __init__(self, file: str, base: int, clip_count: int,
+                 label: np.array) -> None:
+        """ Note that label is np.array (1, NUM_CLASSES). """
+        self.file       = file
+        self.base       = base
+        self.clip_count = clip_count
+        self.label      = label
+
 class SoundDatagen(keras.utils.Sequence):
     """ Data generator for sound data with FFT or similar transform. """
     def __init__(self, x: List[str], y: Optional[List[str]]) -> None:
         """ Constructor. """
-        self.files, self.labels = x, np.array(y)
-        self.clips_per_sample = [data_clips_per_sample[s] for s in x]
-        self.clip_offsets = list(itertools.accumulate(self.clips_per_sample))
-        self.clip_offsets.insert(0, 0)
+        self.files = x
+        self.labels = label_binarizer.transform(y)
+        self.batches = self.generate_table()
+        self.last_file_name = ""
+        self.last_file_data = np.empty(0)
 
-        print("clips_per_sample", self.clips_per_sample[:100])
-        print("clip_offsets", self.clip_offsets[:100])
+    def generate_table(self) -> List[List[Fragment]]:
+        """ Generates table with clip list for every batch.
+        Returns list of batches, every batch is a list of Fragments. """
+        clips_per_sample = [data_clips_per_sample[s] for s in self.files]
+        batches = []
+        reminder: List[Fragment] = []
+        num_remaining_clips = 0
+        print("clips_per_sample", clips_per_sample[:100])
 
-        self.clips_count = self.clip_offsets[-1]
-        self.batch_count = int(np.ceil(self.clips_count / BATCH_SIZE))
+        for file, clip_count, label in zip(self.files, clips_per_sample,
+                                           self.labels):
+            print("file=%s clip_count=%d" % (file, clip_count))
+            base = 0
+
+            # generate as many full batches as we can
+            while num_remaining_clips + clip_count - base >= BATCH_SIZE:
+                print("\tnum_remaining_clips=%d clip_count=%d base=%d" %
+                      (num_remaining_clips, clip_count, base))
+                count = BATCH_SIZE - num_remaining_clips
+                print("\tappending clips (first=%d count=%d)" % (base, count))
+                reminder.append(Fragment(file, base, count, label))
+
+                assert(count + num_remaining_clips == BATCH_SIZE)
+                batches.append(reminder)
+
+                s = 0
+                print("counting clips")
+                
+                for frag in batches[-1]:
+                    print("\t", frag.file, frag.base, frag.clip_count)
+                    s += frag.clip_count
+
+                print("total clips count", s)
+                assert(s == BATCH_SIZE)
+
+                # print(batches[-1])
+                # assert(sum(map(lambda f: f.clip_count, batches[-1])) == BATCH_SIZE)
+
+                base += count
+                reminder, num_remaining_clips = [], 0
+
+            # put any unused clips into reminder
+            reminder.append(Fragment(file, 0, clip_count, label))
+            num_remaining_clips += clip_count - base
+            print("\treminder: adding (base=%d count=%d) total=%d" %
+                  (base, clip_count, num_remaining_clips))
+
+        for i, batch in enumerate(batches):
+            print("batch %d" % i)
+            assert(sum(map(lambda f: f.clip_count, batch)) == BATCH_SIZE)
+
+        # generate last incomplete batch
+        if len(reminder):
+            print("appending last reminder, count=%d" % num_remaining_clips)
+            batches.append(reminder)
+
+        return batches
 
     def __getitem__(self, idx: int) -> np.array:
         """ Returns a batch. """
         print("-------------------------\ngetitem(%d)" % idx)
+        batch = self.batches[idx]
+        x, y = [], []
 
-        start_sample, end_sample = idx * BATCH_SIZE, (idx+1) * BATCH_SIZE
-        start = bisect.bisect_left(self.clip_offsets, start_sample)
-        end = bisect.bisect_left(self.clip_offsets, end_sample)
+        for frag in batch:
+            if frag.file == self.last_file_name:
+                clip = self.last_file_data
+            else:
+                self.last_file_data = clip = read_cached_file(frag.file)
+                self.last_file_name = frag.file
 
-        if self.clip_offsets[end] > end_sample:
-            end -= 1
+            x.append(clip[frag.base : frag.base + frag.clip_count])
+            y.extend([frag.label] * frag.clip_count)
 
-        print("start_sample", start_sample, "end_sample", end_sample)
-        print("start", start, "end", end)
-        print("clip_offsets[start]", self.clip_offsets[start],
-              "clip_offsets[end]", self.clip_offsets[end])
+            # print("label", frag.label.shape)
+            # print("y", y)
 
-        assert(start < len(self.clip_offsets))
-        assert(end < len(self.clip_offsets))
-        assert(self.clip_offsets[start] >= start_sample)
-        assert(self.clip_offsets[end] <= end_sample)
+        x_arr, y_arr = np.concatenate(x), np.array(y)
+        print("x", len(x), "y", len(y))
+        print("x_arr", x_arr.shape, "y_arr", y_arr.shape)
 
-        # take last a few clips from the previous file, if necessary
-        if start_sample < self.clip_offsets[start]:
-            print("\tadding head")
-            assert(start > 0)
-            head_clip = read_cached_file(self.files[start - 1])
-            assert(len(head_clip) == self.clips_per_sample[start - 1])
-            print("\tlen(head_clip)", len(head_clip))
-            # print("\thead_clip start ofs", self.clip_offsets[start] - start_sample)
-            head = head_clip[start_sample - self.clip_offsets[start]: ]
-            print("\tlen(head)", len(head))
-        else:
-            head = []
-
-        # concatenate all lists of clips into a single list
-        clips = sum((read_cached_file(self.files[i]) for i in
-                     range(start, end)), head)
-        print("len(clips)", len(clips))
-
-        # take first a few clips from the last file, if necessary
-        if len(clips) < BATCH_SIZE:
-            print("\tadding tail")
-            tail_clip = read_cached_file(self.files[end])
-            assert(len(tail_clip) == self.clips_per_sample[end])
-            print("\tlen(tail_clip)", len(tail_clip))
-            print("\tlen(clips)", len(clips))
-            tail = tail_clip[: BATCH_SIZE - len(clips)]
-        else:
-            tail = []
-
-        clips.extend(tail)
-        print("head", len(head), "clips", len(clips), "tail", len(tail))
-
-        x = np.array(clips)
-        x = (x - data_mean) / data_std
-        print("x", x.shape)
-        assert(x.shape[0] == BATCH_SIZE)
-
-        if self.labels is not None:
-            # y = self.labels[self.clip_offsets[start] : self.clip_offsets[end]]
-            # y = label_binarizer.transform(y)
-
-            # FIXME: TEMP
-            # y = y[:BATCH_SIZE]
-            y = np.zeros((BATCH_SIZE, 41))
-            print("y", y.shape)
-
-            assert(y.shape[0] == BATCH_SIZE)
-            return x, y
-        else:
-            return x, None
+        assert(x_arr.shape[0] == BATCH_SIZE or idx == len(self) - 1)
+        assert(x_arr.shape[0] == y_arr.shape[0])
+        return x_arr, y_arr
 
     def __len__(self) -> int:
         """ Returns number of batches. """
-        return self.batch_count
+        return len(self.batches)
 
     def on_epoch_end(self) -> None:
         """ Might be useful. """
@@ -458,8 +384,8 @@ class SoundDatagen(keras.utils.Sequence):
 
     def shape(self) -> Tuple[int, int, int, int]:
         """ Returns shape of the X tensor. """
-        item0 = self.__getitem__(0)
-        return item0[0].shape
+        some_x, some_y = self.__getitem__(0)
+        return some_x.shape
 
     def get_clips_per_sample(self) -> List[int]:
         """ Returns number of clips for every sample. """
