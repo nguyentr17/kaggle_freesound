@@ -289,6 +289,9 @@ class SoundDatagen(keras.utils.Sequence):
         self.last_file_name = ""
         self.last_file_data = np.empty(0)
 
+        print("datagen: x %d y %d" % (len(x), len(y) if y is not None else 0))
+        assert(y is None or len(x) == len(y))
+
     def generate_table(self) -> List[List[Fragment]]:
         """ Generates table with clip list for every batch.
         Returns list of batches, every batch is a list of Fragments. """

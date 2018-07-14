@@ -64,17 +64,27 @@ def get_best_model_path(name: str) -> str:
 
 class Map3Metric(keras.callbacks.Callback):
     """ Keras callback that calculates MAP3 metric. """
-    def __init__(self, datagen: SoundDatagen, y: np.array, name: str) -> None:
+    def __init__(self, datagen: SoundDatagen, name: str) -> None:
         self.datagen    = datagen
-        self.y          = y
         self.name       = name
-
         self.best_map3  = 0.0
         self.best_epoch = 0
 
+    def calculate(self) -> float:
+        results = []
+        count = len(self.datagen)
+        generator = iter(self.datagen)
+
+        for _ in range(count):
+            x, y = next(generator)
+            predict = self.model.predict_on_batch(x)
+            map3 = map3_metric(predict, y)
+            results.append(map3)
+
+        return np.mean(results)
+
     def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
-        predict = self.model.predict_generator(self.datagen)
-        map3 = map3_metric(predict, self.y)
+        map3 = self.calculate()
         print("epoch %d MAP@3 %.4f" % (epoch, map3))
 
         if map3 > self.best_map3:
@@ -85,7 +95,7 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.save(get_best_model_path(self.name))
 
 def train_model(train_datagen: SoundDatagen, val_datagen: SoundDatagen,
-                labels: np.array, name: str) -> None:
+                name: str) -> None:
     """ Creates model, trains it and saves it to the file. """
     shape = train_datagen.shape()
     x = inp = keras.layers.Input(shape=shape[1:])
@@ -130,14 +140,14 @@ def train_model(train_datagen: SoundDatagen, val_datagen: SoundDatagen,
     model = keras.models.Model(inputs=inp, outputs=out)
     model.summary()
 
-    map3 = Map3Metric(val_datagen, labels, name)
+    map3 = Map3Metric(val_datagen, name)
     model.compile(loss="categorical_crossentropy", optimizer="adam",
                   metrics=["accuracy"])
 
     model.fit_generator(train_datagen, epochs=NUM_EPOCHS,
                         verbose=1, shuffle=False,
-                        use_multiprocessing=False,
-                        # use_multiprocessing=True, workers=12,
+                        # use_multiprocessing=False,
+                        use_multiprocessing=True, workers=12,
                         validation_data=val_datagen, callbacks=[map3])
 
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
@@ -222,7 +232,7 @@ if __name__ == "__main__":
 
         if not PREDICT_ONLY:
             train_model(SoundDatagen(x_train, y_train),
-                        SoundDatagen(x_val, y_val), y_val, "nofolds")
+                        SoundDatagen(x_val, y_val), "nofolds")
 
         pred = predict(SoundDatagen(test_files, None), "nofolds")
         pred = encode_predictions(pred)
@@ -239,7 +249,7 @@ if __name__ == "__main__":
 
             if not PREDICT_ONLY:
                 train_model(SoundDatagen(x_train, y_train),
-                            SoundDatagen(x_val, y_val), y_val, name)
+                            SoundDatagen(x_val, y_val), name)
 
             pred[:, k, :] = predict(SoundDatagen(test_files, None), name)
 
