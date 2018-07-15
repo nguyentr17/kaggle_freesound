@@ -25,7 +25,7 @@ NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
 
 # Network hyperparameters
-NUM_EPOCHS      = 10
+NUM_EPOCHS      = 150
 
 
 def map3_metric(predict: np.array, ground_truth: np.array) -> float:
