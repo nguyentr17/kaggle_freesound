@@ -27,8 +27,7 @@ NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
 
 # Network hyperparameters
-NUM_EPOCHS      = 150
-# NUM_EPOCHS      = 5
+NUM_EPOCHS      = 150 if not USE_HYPEROPT else 10
 
 
 def map3_metric(predict: np.array, ground_truth: np.array) -> float:
@@ -88,6 +87,7 @@ class Map3Metric(keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
         map3 = self.calculate()
+        epoch += 1
         print("epoch %d MAP@3 %.4f" % (epoch, map3))
 
         if map3 > self.best_map3:
@@ -162,9 +162,6 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
             x = keras.layers.Dropout(fc_dropout_coeff)(x)
 
         x = keras.layers.Activation("relu")(x)
-
-        if fc_dropout_coeff:
-            x = keras.layers.Dropout(fc_dropout_coeff)(x)
 
     out = keras.layers.Dense(NUM_CLASSES, activation="softmax")(x)
 
@@ -291,15 +288,15 @@ if __name__ == "__main__":
             "fc_dropout_coeff"  : hp.uniform("fc_dropout_coeff", 0.01, 0.99),
             "num_cnn_layers"    : hp.quniform("num_cnn_layers", 2, 7, 1),
             "cnn_depth"         : hp.loguniform("cnn_depth", 0, np.log(50)),
-            "num_fc_layers"     : hp.quniform("num_fc_layers", 0, 3, 1),
+            "num_fc_layers"     : hp.quniform("num_fc_layers", 0, 2, 1),
             "num_hidden"        : hp.loguniform("num_hidden", np.log(NUM_CLASSES),
                                                 np.log(200)),
-            "cnn_kernel_reg"    : hp.uniform("cnn_kernel_reg", -6, -1),
-            "cnn_bias_reg"      : hp.uniform("cnn_bias_reg", -6, -1),
-            "cnn_activity_reg"  : hp.uniform("cnn_activity_reg", -6, -1),
-            "fc_kernel_reg"     : hp.uniform("fc_kernel_reg", -6, -1),
-            "fc_bias_reg"       : hp.uniform("fc_bias_reg", -6, -1),
-            "fc_activity_reg"   : hp.uniform("fc_activity_reg", -6, -1),
+            "cnn_kernel_reg"    : hp.uniform("cnn_kernel_reg", -6, -3),
+            "cnn_bias_reg"      : hp.uniform("cnn_bias_reg", -6, -3),
+            "cnn_activity_reg"  : hp.uniform("cnn_activity_reg", -6, -3),
+            "fc_kernel_reg"     : hp.uniform("fc_kernel_reg", -6, -3),
+            "fc_bias_reg"       : hp.uniform("fc_bias_reg", -6, -3),
+            "fc_activity_reg"   : hp.uniform("fc_activity_reg", -6, -3),
         }
 
         best = fmin(fn=train_model_with_params, space=hyperopt_space,
@@ -317,21 +314,21 @@ if __name__ == "__main__":
             #             SoundDatagen(x_val, y_val), "nofolds")
 
             params: Dict[str, Any] = {
-                'cnn_activity_reg': -5.995101075797786,
-                'cnn_bias_reg': -2.9565232395974705,
-                'cnn_depth': 2.2974537393650225,
-                'cnn_dropout_coeff': 0.485608633650729,
+                'cnn_activity_reg': -6,
+                'cnn_bias_reg': -3,
+                'cnn_depth': 32,
+                'cnn_dropout_coeff': 0.5,
                 'cnn_dropout_enable': False,
-                'cnn_kernel_reg': -5.501954772977306,
+                'cnn_kernel_reg': -5.5,
                 'dropout_after_bn': False,
-                'fc_activity_reg': -4.1915435206857925,
-                'fc_bias_reg': -4.400442764935576,
-                'fc_dropout_coeff': 0.08144730077910385,
+                'fc_activity_reg': -4,
+                'fc_bias_reg': -4.4,
+                'fc_dropout_coeff': 0.1,
                 'fc_dropout_enable': True,
-                'fc_kernel_reg': -1.7739742723759289,
-                'num_cnn_layers': 2.0,
-                'num_fc_layers': 2.0,
-                'num_hidden': 134.0165157308784
+                'fc_kernel_reg': -3,
+                'num_cnn_layers': 4,
+                'num_fc_layers': 1,
+                'num_hidden': 134
             }
 
             train_datagen = SoundDatagen(x_train, y_train)
