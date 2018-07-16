@@ -21,7 +21,7 @@ PREDICT_ONLY    = False
 ENABLE_KFOLD    = False
 TEST_SIZE       = 0.2
 KFOLDS          = 10
-USE_HYPEROPT    = False
+USE_HYPEROPT    = True
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
@@ -71,6 +71,7 @@ class Map3Metric(keras.callbacks.Callback):
         self.name       = name
         self.best_map3  = 0.0
         self.best_epoch = 0
+        self.last_map3  = 0.0
 
     def calculate(self) -> float:
         results = []
@@ -86,7 +87,7 @@ class Map3Metric(keras.callbacks.Callback):
         return np.mean(results)
 
     def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
-        map3 = self.calculate()
+        self.last_map3 = map3 = self.calculate()
         epoch += 1
         print("epoch %d MAP@3 %.4f" % (epoch, map3))
 
@@ -115,11 +116,11 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     num_fc_layers       = int(params["num_fc_layers"])
     num_hidden          = int(params["num_hidden"])
     cnn_kernel_reg      = make_reg(params["cnn_kernel_reg"])
-    cnn_bias_reg        = make_reg(params["cnn_bias_reg"])
-    cnn_activity_reg    = make_reg(params["cnn_activity_reg"])
+    cnn_bias_reg        = cnn_kernel_reg
+    cnn_activity_reg    = cnn_kernel_reg
     fc_kernel_reg       = make_reg(params["fc_kernel_reg"])
-    fc_bias_reg         = make_reg(params["fc_bias_reg"])
-    fc_activity_reg     = make_reg(params["fc_activity_reg"])
+    fc_bias_reg         = fc_kernel_reg
+    fc_activity_reg     = fc_kernel_reg
 
     shape = train_datagen.shape()
     x = inp = keras.layers.Input(shape=shape[1:])
@@ -163,7 +164,11 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
 
         x = keras.layers.Activation("relu")(x)
 
-    out = keras.layers.Dense(NUM_CLASSES, activation="softmax")(x)
+    out = keras.layers.Dense(NUM_CLASSES,
+                             kernel_regularizer=fc_kernel_reg,
+                             bias_regularizer=fc_bias_reg,
+                             activity_regularizer=fc_activity_reg,
+                             activation="softmax")(x)
 
     model = keras.models.Model(inputs=inp, outputs=out)
     model.summary()
@@ -179,7 +184,7 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
                         validation_data=val_datagen, callbacks=[map3])
 
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
-    return map3.best_map3
+    return map3.last_map3
 
 def merge_predictions(pred: np.array, mode: str, axis: int) -> np.array:
     """ Merges predictions for all clips and returns a single prediction. """
@@ -201,7 +206,7 @@ def predict(datagen: SoundDatagen, model_name: str) -> np.array:
     print("predicting results")
     model = keras.models.load_model(get_best_model_path(model_name))
 
-    y_test = model.predict_generator(datagen)
+    y_test = model.predict_generator(datagen, verbose=1)
     print("y_test.shape after predict", y_test.shape)
 
     pos = 0
@@ -286,21 +291,17 @@ if __name__ == "__main__":
             "dropout_after_bn"  : hp.choice("dropout_after_bn", [False, True]),
             "fc_dropout_enable" : hp.choice("fc_dropout_enable", [False, True]),
             "fc_dropout_coeff"  : hp.uniform("fc_dropout_coeff", 0.01, 0.99),
-            "num_cnn_layers"    : hp.quniform("num_cnn_layers", 2, 7, 1),
-            "cnn_depth"         : hp.loguniform("cnn_depth", 0, np.log(50)),
+            "num_cnn_layers"    : hp.quniform("num_cnn_layers", 4, 7, 1),
+            "cnn_depth"         : hp.uniform("cnn_depth", 16, 50),
             "num_fc_layers"     : hp.quniform("num_fc_layers", 0, 2, 1),
             "num_hidden"        : hp.loguniform("num_hidden", np.log(NUM_CLASSES),
                                                 np.log(200)),
             "cnn_kernel_reg"    : hp.uniform("cnn_kernel_reg", -6, -3),
-            "cnn_bias_reg"      : hp.uniform("cnn_bias_reg", -6, -3),
-            "cnn_activity_reg"  : hp.uniform("cnn_activity_reg", -6, -3),
             "fc_kernel_reg"     : hp.uniform("fc_kernel_reg", -6, -3),
-            "fc_bias_reg"       : hp.uniform("fc_bias_reg", -6, -3),
-            "fc_activity_reg"   : hp.uniform("fc_activity_reg", -6, -3),
         }
 
         best = fmin(fn=train_model_with_params, space=hyperopt_space,
-                    algo=tpe.suggest, max_evals=100)
+                    algo=tpe.suggest, max_evals=30)
         print("best params:", best)
 
         pred = predict(SoundDatagen(test_files, None), "nofolds")
