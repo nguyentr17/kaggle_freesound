@@ -2,6 +2,7 @@
 
 import glob, os, sys
 from typing import *
+from math import log
 
 import numpy as np, pandas as pd, scipy as sp
 import keras
@@ -99,36 +100,46 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.save(get_best_model_path(self.name))
 
 def make_reg(reg: str) -> Any:
-    r = int(reg)
+    r = float(reg)
     return keras.regularizers.l2(float(10 ** r)) if r >= -5 else None
 
 def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float:
     """ Creates model with given parameters. """
     print("training with params", params)
 
-    cnn_dropout_enable  = float(params["cnn_dropout_enable"])
-    cnn_dropout_coeff   = float(params["cnn_dropout_coeff"]) * cnn_dropout_enable
-    dropout_after_bn    = bool(params["dropout_after_bn"])
-    fc_dropout_enable   = float(params["fc_dropout_enable"])
-    fc_dropout_coeff    = float(params["fc_dropout_coeff"]) * fc_dropout_enable
+    cnn_dropout_enable  = False # float(params["cnn_dropout_enable"])
+    cnn_dropout_coeff   = 0     # float(params["cnn_dropout_coeff"]) * cnn_dropout_enable
+    dropout_after_bn    = True  # bool(params["dropout_after_bn"])
+    fc_dropout_enable   = True  # float(params["fc_dropout_enable"])
+    fc_dropout_coeff    = 0.6   # float(params["fc_dropout_coeff"]) * fc_dropout_enable
     num_cnn_layers      = int(params["num_cnn_layers"])
     cnn_depth           = int(params["cnn_depth"])
-    num_fc_layers       = int(params["num_fc_layers"])
+    num_fc_layers       = 1     # int(params["num_fc_layers"])
     num_hidden          = int(params["num_hidden"])
-    cnn_kernel_reg      = make_reg(params["cnn_kernel_reg"])
+    cnn_kernel_reg      = None    # make_reg(params["cnn_kernel_reg"])
     cnn_bias_reg        = cnn_kernel_reg
     cnn_activity_reg    = cnn_kernel_reg
-    fc_kernel_reg       = make_reg(params["fc_kernel_reg"])
+    fc_kernel_reg       = make_reg("-4.5") # make_reg(params["fc_kernel_reg"])
     fc_bias_reg         = fc_kernel_reg
     fc_activity_reg     = fc_kernel_reg
+
+    padding             = params["padding"]
+    cnn_kern_width      = float(params["cnn_kern_width"])
+    cnn_kern_height     = float(params["cnn_kern_height"])
+    cnn_dim_decay       = float(params["cnn_dim_decay"])
+    cnn_depth_growth    = float(params["cnn_depth_growth"])
 
     shape = train_datagen.shape()
     x = inp = keras.layers.Input(shape=shape[1:])
 
-    for _ in range(num_cnn_layers):
-        x = keras.layers.Convolution2D(cnn_depth,
-                                       (4, 10),
-                                       padding="same",
+    for L in range(num_cnn_layers):
+        w = max(int(cnn_kern_width * (cnn_dim_decay ** L)), 1)
+        h = max(int(cnn_kern_height * (cnn_dim_decay ** L)), 1)
+        d = int(cnn_depth * (cnn_depth_growth ** L))
+
+        x = keras.layers.Convolution2D(d,
+                                       (w, h),
+                                       padding=padding,
                                        kernel_regularizer=cnn_kernel_reg,
                                        bias_regularizer=cnn_bias_reg,
                                        activity_regularizer=cnn_activity_reg
@@ -269,35 +280,33 @@ if __name__ == "__main__":
         val_datagen = SoundDatagen(x_val, y_val)
 
         '''
-        cnn_dropout_enable  = float(params["cnn_dropout_enable"])
-        cnn_dropout_coeff   = float(params["cnn_dropout_coeff"]) * cnn_dropout_enable
-        dropout_after_bn    = bool(params["dropout_after_bn"])
-        fc_dropout_enable   = float(params["fc_dropout_enable"])
-        fc_dropout_coeff    = float(params["fc_dropout_coeff"]) * fc_dropout_coeff
-        num_cnn_layers      = int(params["num_cnn_layers"])
-        cnn_depth           = int(params["cnn_depth"])
-        num_fc_layers       = int(params["num_fc_layers"])
-        num_hidden          = int(params["num_hidden"])
-        cnn_kernel_reg      = make_reg(params["cnn_kernel_reg"])
-        cnn_bias_reg        = make_reg(params["cnn_bias_reg"])
-        cnn_activity_reg    = make_reg(params["cnn_activity_reg"])
-        fc_kernel_reg       = make_reg(params["fc_kernel_reg"])
-        fc_bias_reg         = make_reg(params["fc_bias_reg"])
-        fc_activity_reg     = make_reg(params["fc_activity_reg"])
+        padding             = params["padding"]
+        cnn_kern_width      = float(params["cnn_kern_width"])
+        cnn_kern_height     = float(params["cnn_kern_height"])
+        cnn_dim_decay       = float(params["cnn_dim_decay"])
+        cnn_depth_growth    = float(params["cnn_depth_growth"])
         '''
+
         hyperopt_space = {
-            "cnn_dropout_enable": hp.choice("cnn_dropout_enable", [False, True]),
-            "cnn_dropout_coeff" : hp.uniform("cnn_dropout_coeff", 0.01, 0.99),
-            "dropout_after_bn"  : hp.choice("dropout_after_bn", [False, True]),
-            "fc_dropout_enable" : hp.choice("fc_dropout_enable", [False, True]),
-            "fc_dropout_coeff"  : hp.uniform("fc_dropout_coeff", 0.01, 0.99),
+            # "cnn_dropout_enable": hp.choice("cnn_dropout_enable", [False, True]),
+            # "cnn_dropout_coeff" : hp.uniform("cnn_dropout_coeff", 0.01, 0.99),
+            # "dropout_after_bn"  : hp.choice("dropout_after_bn", [False, True]),
+            # "fc_dropout_enable" : hp.choice("fc_dropout_enable", [False, True]),
+            # "fc_dropout_coeff"  : hp.uniform("fc_dropout_coeff", 0.01, 0.99),
+            # "num_fc_layers"     : hp.quniform("num_fc_layers", 0, 2, 1),
+            # "cnn_kernel_reg"    : hp.uniform("cnn_kernel_reg", -6, -3),
+            # "fc_kernel_reg"     : hp.uniform("fc_kernel_reg", -6, -3),
+
             "num_cnn_layers"    : hp.quniform("num_cnn_layers", 4, 7, 1),
-            "cnn_depth"         : hp.uniform("cnn_depth", 16, 50),
-            "num_fc_layers"     : hp.quniform("num_fc_layers", 0, 2, 1),
-            "num_hidden"        : hp.loguniform("num_hidden", np.log(NUM_CLASSES),
-                                                np.log(200)),
-            "cnn_kernel_reg"    : hp.uniform("cnn_kernel_reg", -6, -3),
-            "fc_kernel_reg"     : hp.uniform("fc_kernel_reg", -6, -3),
+            "cnn_depth"         : hp.quniform("cnn_depth", 16, 50, 1),
+            "num_hidden"        : hp.qloguniform("num_hidden", log(NUM_CLASSES),
+                                                 log(100), 1),
+
+            "padding"           : hp.choice("padding", ["same", "valid"]),
+            "cnn_kern_width"    : hp.quniform("cnn_kern_width", log(2), log(10), 1),
+            "cnn_kern_height"   : hp.quniform("cnn_kern_height", log(2), log(20), 1),
+            "cnn_dim_decay"     : hp.choice("cnn_dim_decay", [1, 0.8, 0.75, 0.5]),
+            "cnn_depth_growth"  : hp.choice("cnn_depth_growth", [1, 1.25, 1.5, 2]),
         }
 
         best = fmin(fn=train_model_with_params, space=hyperopt_space,
@@ -311,25 +320,15 @@ if __name__ == "__main__":
             train_files, train_labels, test_size=TEST_SIZE, shuffle=False)
 
         if not PREDICT_ONLY:
-            # train_model(SoundDatagen(x_train, y_train),
-            #             SoundDatagen(x_val, y_val), "nofolds")
-
-            params: Dict[str, Any] = {
-                'cnn_activity_reg': -6,
-                'cnn_bias_reg': -3,
-                'cnn_depth': 32,
-                'cnn_dropout_coeff': 0.5,
-                'cnn_dropout_enable': False,
-                'cnn_kernel_reg': -5.5,
-                'dropout_after_bn': False,
-                'fc_activity_reg': -4,
-                'fc_bias_reg': -4.4,
-                'fc_dropout_coeff': 0.1,
-                'fc_dropout_enable': True,
-                'fc_kernel_reg': -3,
-                'num_cnn_layers': 4,
-                'num_fc_layers': 1,
-                'num_hidden': 134
+            params : Dict[str, Any] = {
+                'cnn_depth': 34.0,
+                'cnn_depth_growth': 1.25,
+                'cnn_dim_decay': 1,
+                'cnn_kern_height': 2.0,
+                'cnn_kern_width': 1.0,
+                'num_cnn_layers': 6.0,
+                'num_hidden': 61.0,
+                'padding': 'same'
             }
 
             train_datagen = SoundDatagen(x_train, y_train)
