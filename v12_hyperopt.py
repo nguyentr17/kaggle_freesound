@@ -28,7 +28,7 @@ NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
 
 # Network hyperparameters
-NUM_EPOCHS      = 150 if not USE_HYPEROPT else 10
+NUM_EPOCHS      = 150 if not USE_HYPEROPT else 100
 
 
 def map3_metric(predict: np.array, ground_truth: np.array) -> float:
@@ -103,6 +103,8 @@ def make_reg(reg: str) -> Any:
     r = float(reg)
     return keras.regularizers.l2(float(10 ** r)) if r >= -5 else None
 
+# def cyclic_lr(epoch: int, current_lr: float) -> float:
+
 def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float:
     """ Creates model with given parameters. """
     print("training with params", params)
@@ -111,7 +113,7 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     cnn_dropout_coeff   = 0     # float(params["cnn_dropout_coeff"]) * cnn_dropout_enable
     dropout_after_bn    = True  # bool(params["dropout_after_bn"])
     fc_dropout_enable   = True  # float(params["fc_dropout_enable"])
-    fc_dropout_coeff    = 0.6   # float(params["fc_dropout_coeff"]) * fc_dropout_enable
+    fc_dropout_coeff    = float(params["fc_dropout_coeff"])
     num_cnn_layers      = int(params["num_cnn_layers"])
     cnn_depth           = int(params["cnn_depth"])
     num_fc_layers       = 1     # int(params["num_fc_layers"])
@@ -130,12 +132,13 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     cnn_depth_growth    = float(params["cnn_depth_growth"])
 
     shape = train_datagen.shape()
+    print("shape of input data", shape)
     x = inp = keras.layers.Input(shape=shape[1:])
 
     for L in range(num_cnn_layers):
-        w = max(int(cnn_kern_width * (cnn_dim_decay ** L)), 1)
-        h = max(int(cnn_kern_height * (cnn_dim_decay ** L)), 1)
-        d = int(cnn_depth * (cnn_depth_growth ** L))
+        w = max(int(cnn_kern_width * (cnn_dim_decay ** L)), 2)
+        h = max(int(cnn_kern_height * (cnn_dim_decay ** L)), 2)
+        d = min(int(cnn_depth * (cnn_depth_growth ** L)), 100)
 
         x = keras.layers.Convolution2D(d,
                                        (w, h),
@@ -188,11 +191,16 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
                   metrics=["accuracy"])
 
     map3 = Map3Metric(val_datagen, name)
+    early_stopping = keras.callbacks.EarlyStopping(monitor='val_acc',
+                        min_delta=0.01, patience=5, verbose=1)
+    # lr_sched = keras.callbacks.LearningRateScheduler(cyclic_lr, verbose=1)
+
     model.fit_generator(train_datagen, epochs=NUM_EPOCHS,
                         verbose=1, shuffle=False,
                         # use_multiprocessing=False,
                         use_multiprocessing=True, workers=12,
-                        validation_data=val_datagen, callbacks=[map3])
+                        validation_data=val_datagen,
+                        callbacks=[map3, early_stopping])
 
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
     return map3.last_map3
@@ -292,10 +300,11 @@ if __name__ == "__main__":
             # "cnn_dropout_coeff" : hp.uniform("cnn_dropout_coeff", 0.01, 0.99),
             # "dropout_after_bn"  : hp.choice("dropout_after_bn", [False, True]),
             # "fc_dropout_enable" : hp.choice("fc_dropout_enable", [False, True]),
-            # "fc_dropout_coeff"  : hp.uniform("fc_dropout_coeff", 0.01, 0.99),
             # "num_fc_layers"     : hp.quniform("num_fc_layers", 0, 2, 1),
             # "cnn_kernel_reg"    : hp.uniform("cnn_kernel_reg", -6, -3),
             # "fc_kernel_reg"     : hp.uniform("fc_kernel_reg", -6, -3),
+
+            "fc_dropout_coeff"  : hp.uniform("fc_dropout_coeff", 0, 0.9),
 
             "num_cnn_layers"    : hp.quniform("num_cnn_layers", 4, 7, 1),
             "cnn_depth"         : hp.quniform("cnn_depth", 16, 50, 1),
