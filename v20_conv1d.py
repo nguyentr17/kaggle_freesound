@@ -123,8 +123,7 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     fc_bias_reg         = fc_kernel_reg
     fc_activity_reg     = fc_kernel_reg
 
-    cnn_dropout_enable  = float(params["cnn_dropout_enable"])
-    cnn_dropout_coeff   = float(params["cnn_dropout_coeff"]) * cnn_dropout_enable
+    cnn_dropout_coeff   = float(params["cnn_dropout_coeff"])
     cnn_kern_width      = int(params["cnn_kern_width"])
     cnn_dim_decay       = int(params["cnn_dim_decay"])
     cnn_depth_growth    = int(params["cnn_depth_growth"])
@@ -305,8 +304,7 @@ if __name__ == "__main__":
         val_datagen = SoundDatagen(x_val, y_val)
 
         '''
-        cnn_dropout_enable  = float(params["cnn_dropout_enable"])
-        cnn_dropout_coeff   = float(params["cnn_dropout_coeff"]) * cnn_dropout_enable
+        cnn_dropout_coeff   = float(params["cnn_dropout_coeff"])
         cnn_kern_width      = int(params["cnn_kern_width"])
         cnn_dim_decay       = int(params["cnn_dim_decay"])
         cnn_depth_growth    = int(params["cnn_depth_growth"])
@@ -315,22 +313,18 @@ if __name__ == "__main__":
         '''
 
         hyperopt_space = {
-            "fc_dropout_coeff"  : hp.uniform("fc_dropout_coeff", 0, 0.9),
-
             "num_cnn_layers"    : hp.quniform("num_cnn_layers", 4, 7, 1),
             "cnn_depth"         : hp.quniform("cnn_depth", 16, 50, 1),
-            "num_hidden"        : hp.qloguniform("num_hidden", log(NUM_CLASSES),
-                                                 log(100), 1),
-
-            "cnn_dropout_enable" : hp.choice("cnn_dropout_enable", [True, False]),
-            "cnn_dropout_coeff"  : hp.uniform("cnn_dropout_coeff", 0, 0.9),
-
+            "cnn_dropout_coeff" : hp.uniform("cnn_dropout_coeff", 0, 0.9),
             "cnn_kern_width"    : hp.quniform("cnn_kern_width", log(2), log(10), 1),
             "cnn_dim_decay"     : hp.choice("cnn_dim_decay", [1, 0.8, 0.75, 0.5]),
             "cnn_depth_growth"  : hp.choice("cnn_depth_growth", [1, 1.25, 1.5, 2]),
-
             "conv2d_depth"      : hp.qloguniform("conv2d_depth", log(2), log(100), 1),
             "conv2d_len"        : hp.choice("conv2d_len", [1, 2, 3]),
+
+            "fc_dropout_coeff"  : hp.uniform("fc_dropout_coeff", 0, 0.9),
+            "num_hidden"        : hp.qloguniform("num_hidden", log(NUM_CLASSES),
+                                                 log(100), 1),
         }
 
         best = fmin(fn=train_model_with_params, space=hyperopt_space,
