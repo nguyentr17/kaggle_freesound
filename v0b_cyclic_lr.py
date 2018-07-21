@@ -18,10 +18,10 @@ Tensor = Any
 
 TOPK = 3
 
-CODE_VERSION    = 0x05
+CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0]
 DATA_VERSION    = 0x01
 
-PREDICT_ONLY    = False
+PREDICT_ONLY    = True
 ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
 KFOLDS          = 10
@@ -31,7 +31,7 @@ SAMPLE_RATE     = 44100
 
 # Network hyperparameters
 BATCH_SIZE      = 32
-NUM_EPOCHS      = 50
+NUM_EPOCHS      = 100
 NUM_HIDDEN1     = 200
 NUM_HIDDEN2     = 200
 DROPOUT_COEFF   = 0.1
@@ -148,11 +148,15 @@ def map3_metric(predict: NpArray, ground_truth: NpArray) -> float:
 
 def get_model_path(name: str) -> str:
     """ Builds the path of the model file. """
-    return "../models/%02x__%s.hdf5" % (CODE_VERSION, name)
+    return "../models/%s__%s.hdf5" % (CODE_VERSION, name)
 
 def get_best_model_path(name: str) -> str:
     """ Returns the path of the best model. """
     return get_model_path("%s_best" % name)
+
+def make_reg(reg: str) -> Any:
+    r = float(reg)
+    return keras.regularizers.l2(float(10 ** r)) if r >= -5 else None
 
 class Map3Metric(keras.callbacks.Callback):
     """ Keras callback that calculates MAP3 metric. """
@@ -176,9 +180,21 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.save(get_model_path("%s_val_%.4f" % (self.name, map3)))
             self.model.save(get_best_model_path(self.name))
 
+lr_cycle_len        = 5
+min_lr              = 1e-5
+max_lr              = 1e-3
+
+def cyclic_lr(epoch: int) -> float:
+    cycle = np.floor(1 + epoch / (2 * lr_cycle_len))
+    x = abs(epoch / lr_cycle_len - 2 * cycle + 1)
+    lr = min_lr + (max_lr - min_lr) * min(1, x)
+    return lr
+
 def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
                 NpArray, model_name: str) -> Any:
     """ Creates model and trains it. Returns trained model. """
+    fc_bias_reg = fc_activity_reg = fc_kernel_reg = make_reg("-4.5")
+
     x = inp = keras.layers.Input(shape=x_train.shape[1:])
     x = keras.layers.Reshape((x_train.shape[1], x_train.shape[2], 1))(x)
 
@@ -203,21 +219,33 @@ def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
     x = keras.layers.MaxPool2D()(x)
 
     x = keras.layers.Flatten()(x)
-    x = keras.layers.Dense(64)(x)
+    x = keras.layers.Dense(64,
+                           kernel_regularizer=fc_kernel_reg,
+                           bias_regularizer=fc_bias_reg,
+                           activity_regularizer=fc_activity_reg
+                           )(x)
+    x = keras.layers.Dropout(0.6)(x)
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
 
-    out = keras.layers.Dense(NUM_CLASSES, activation="softmax")(x)
+    out = keras.layers.Dense(NUM_CLASSES,
+                             kernel_regularizer=fc_kernel_reg,
+                             bias_regularizer=fc_bias_reg,
+                             activity_regularizer=fc_activity_reg,
+                             activation="softmax")(x)
 
     model = keras.models.Model(inputs=inp, outputs=out)
     model.summary()
 
-    map3 = Map3Metric(x_val, y_val, model_name)
     model.compile(loss="categorical_crossentropy", optimizer="adam",
                   metrics=["accuracy"])
 
+    map3 = Map3Metric(x_val, y_val, model_name)
+    lr_shed = keras.callbacks.LearningRateScheduler(cyclic_lr, verbose=1)
+
     model.fit(x_train, y_train, batch_size=BATCH_SIZE, epochs=NUM_EPOCHS,
-              verbose=1, validation_data=[x_val, y_val], callbacks=[map3])
+              verbose=1, validation_data=[x_val, y_val],
+              callbacks=[map3, lr_shed])
 
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
     return model
@@ -298,7 +326,6 @@ if __name__ == "__main__":
             train_model(x_train, x_val, y_train, y_val, "nofolds")
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
-        pred = encode_predictions(pred)
     else:
         kf = KFold(n_splits=KFOLDS, shuffle=False)
         pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
@@ -318,9 +345,6 @@ if __name__ == "__main__":
         print("before final merge: pred.shape", pred.shape)
         pred = merge_predictions(pred, "geom_mean", axis=1)
         print("predictions after final merge", pred.shape)
-        pred = encode_predictions(pred)
-        print("predictions after encoding", pred.shape)
 
-    sub = pd.DataFrame({"fname": test_idx, "label": pred})
-    sub.to_csv("../submissions/%02x.csv" % CODE_VERSION, index=False, header=True)
-    print("submission has been generated")
+    np.savez("../predictions/%s.npz" % CODE_VERSION, predict=pred)
+    print("matrix of predictions has been saved")

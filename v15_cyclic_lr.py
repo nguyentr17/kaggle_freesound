@@ -14,6 +14,8 @@ from data_v2 import find_files, build_caches, fit_labels
 from data_v2 import get_label_binarizer, SoundDatagen
 
 
+CODE_VERSION = os.path.splitext(os.path.basename(__file__))[0]
+
 Tensor = Any
 
 TOPK = 3
@@ -22,7 +24,7 @@ PREDICT_ONLY    = False
 ENABLE_KFOLD    = False
 TEST_SIZE       = 0.2
 KFOLDS          = 10
-USE_HYPEROPT    = True
+USE_HYPEROPT    = False
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
@@ -57,8 +59,7 @@ def map3_metric(predict: np.array, ground_truth: np.array) -> float:
 
 def get_model_path(name: str) -> str:
     """ Builds the path of the model file. """
-    code_version = os.path.splitext(os.path.basename(__file__))[0]
-    return "../models/%s__%s.hdf5" % (code_version, name)
+    return "../models/%s__%s.hdf5" % (CODE_VERSION, name)
 
 def get_best_model_path(name: str) -> str:
     """ Returns the path of the best model. """
@@ -110,7 +111,6 @@ max_lr              = 1e-3
 def cyclic_lr(epoch: int) -> float:
     cycle = np.floor(1 + epoch / (2 * lr_cycle_len))
     x = abs(epoch / lr_cycle_len - 2 * cycle + 1)
-    # lr = min_lr + (max_lr - min_lr) * max(0, 1 - x)
     lr = min_lr + (max_lr - min_lr) * min(1, x)
     return lr
 
@@ -270,30 +270,6 @@ def predict(datagen: SoundDatagen, model_name: str) -> np.array:
     print("y_test.shape after merge", y_test.shape)
     return y_test
 
-def encode_predictions(y_test: np.array) -> np.array:
-    """ Takes array NUM_SAMPLES * NUM_CLASSES, returns array NUM_SAMPLES
-    of strings."""
-    print("y_test.shape after merge", y_test.shape)
-    label_binarizer = get_label_binarizer()
-
-    # extract top K values
-    y_test = np.argsort(y_test, axis=1)[:, -TOPK:]
-    y_test = np.flip(y_test, axis=1)
-    print("y_test", y_test.shape)
-
-    n_test = y_test.shape[0]
-    pred = np.zeros((n_test, TOPK), dtype=object)
-
-    for col in range(TOPK):
-        answers = keras.utils.to_categorical(y_test[:, col])
-        pred[:, col] = label_binarizer.inverse_transform(answers)
-
-    joined_pred = np.zeros(n_test, dtype=object)
-    for row in range(n_test):
-        joined_pred[row] = " ".join(pred[row, :])
-
-    return joined_pred
-
 if __name__ == "__main__":
     train_df = pd.read_csv("../data/train.csv", index_col="fname")
     train_files = np.array(find_files("../data/audio_train/"))
@@ -353,7 +329,6 @@ if __name__ == "__main__":
         print("best params:", best)
 
         pred = predict(SoundDatagen(test_files, None), "nofolds")
-        pred = encode_predictions(pred)
     elif not ENABLE_KFOLD:
         x_train, x_val, y_train, y_val = train_test_split(
             train_files, train_labels, test_size=TEST_SIZE, shuffle=False)
@@ -376,7 +351,7 @@ if __name__ == "__main__":
             train_model_with_params(params)
 
         pred = predict(SoundDatagen(test_files, None), "nofolds")
-        pred = encode_predictions(pred)
+        print("predictions:", pred.shape)
     else:
         kf = KFold(n_splits=KFOLDS, shuffle=False)
         pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
@@ -401,10 +376,6 @@ if __name__ == "__main__":
         print("before final merge: pred.shape", pred.shape)
         pred = merge_predictions(pred, "geom_mean", axis=1)
         print("predictions after final merge", pred.shape)
-        pred = encode_predictions(pred)
-        print("predictions after encoding", pred.shape)
 
-    sub = pd.DataFrame({"fname": test_idx, "label": pred})
-    version = os.path.splitext(os.path.basename(__file__))[0]
-    sub.to_csv("../submissions/%s.csv" % version, index=False, header=True)
-    print("submission has been generated")
+    np.savez("../predictions/%s.npz" % CODE_VERSION, predict=pred)
+    print("matrix of predictions has been saved")
