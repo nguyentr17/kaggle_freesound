@@ -311,6 +311,9 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     model.compile(loss="categorical_crossentropy", optimizer="adam",
                   metrics=["accuracy"])
 
+    if model.count_params() >= 2 * 10 ** 6:
+        return 0.5
+
     map3 = Map3Metric(x_val, y_val, name)
     # early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
     #                     min_delta=0.01, patience=10, verbose=1)

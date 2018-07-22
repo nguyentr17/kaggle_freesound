@@ -29,7 +29,7 @@ NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
 
 # Network hyperparameters
-NUM_EPOCHS      = 100
+NUM_EPOCHS      = 20
 BATCH_SIZE      = 32
 
 
@@ -144,7 +144,7 @@ def map3_metric(predict: NpArray, ground_truth: NpArray) -> float:
 
 def get_model_path(name: str) -> str:
     """ Builds the path of the model file. """
-    return "../models/%s__%s.hdf5" % (CODE_VERSION, name)
+    return "../models/%s.hdf5" % name
 
 def get_best_model_path(name: str) -> str:
     """ Returns the path of the best model. """
@@ -286,6 +286,9 @@ if __name__ == "__main__":
     test_files = find_files("../data/audio_test/")
     test_idx = [os.path.basename(f) for f in test_files]
 
+    name = os.path.basename(sys.argv[1])
+    name = os.path.splitext(name)[0]
+
     if not ENABLE_KFOLD:
         train_idx, val_idx = train_test_split(train_indices, shuffle=False,
                                               test_size=TEST_SIZE)
@@ -293,7 +296,7 @@ if __name__ == "__main__":
             clips_per_sample = load_data(train_idx, val_idx)
 
         if not PREDICT_ONLY:
-            train(sys.argv[1])
+            train(sys.argv[1], name)
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
     else:
@@ -305,7 +308,7 @@ if __name__ == "__main__":
 
             x_train, y_train, x_val, y_val, x_test, label_binarizer, \
                 clips_per_sample = load_data(train_idx, val_idx)
-            name = "fold_%d" % k
+            name = name + "_fold_%d" % k
 
             if not PREDICT_ONLY:
                 train(sys.argv[1])
