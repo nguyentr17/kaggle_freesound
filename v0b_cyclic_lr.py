@@ -21,7 +21,7 @@ TOPK = 3
 CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0]
 DATA_VERSION    = 0x01
 
-PREDICT_ONLY    = True
+PREDICT_ONLY    = False
 ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
 KFOLDS          = 10
@@ -31,7 +31,7 @@ SAMPLE_RATE     = 44100
 
 # Network hyperparameters
 BATCH_SIZE      = 32
-NUM_EPOCHS      = 100
+NUM_EPOCHS      = 200
 NUM_HIDDEN1     = 200
 NUM_HIDDEN2     = 200
 DROPOUT_COEFF   = 0.1
@@ -181,8 +181,8 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.save(get_best_model_path(self.name))
 
 lr_cycle_len        = 5
-min_lr              = 1e-5
-max_lr              = 1e-3
+min_lr              = 10 ** -5.5
+max_lr              = 10 ** -4
 
 def cyclic_lr(epoch: int) -> float:
     cycle = np.floor(1 + epoch / (2 * lr_cycle_len))
@@ -286,29 +286,6 @@ def predict(x_test: NpArray, label_binarizer: Any, clips_per_sample: List[int],
     y_test = np.array(y_merged)
     print("y_test.shape after merge", y_test.shape)
     return y_test
-
-def encode_predictions(y_test: NpArray) -> NpArray:
-    """ Takes array NUM_SAMPLES x NUM_CLASSES, returns array NUM_SAMPLES
-    of strings."""
-    print("y_test.shape after merge", y_test.shape)
-
-    # extract top K values
-    y_test = np.argsort(y_test, axis=1)[:, -TOPK:]
-    y_test = np.flip(y_test, axis=1)
-    print("y_test", y_test.shape)
-
-    n_test = y_test.shape[0]
-    pred = np.zeros((n_test, TOPK), dtype=object)
-
-    for col in range(TOPK):
-        answers = keras.utils.to_categorical(y_test[:, col])
-        pred[:, col] = label_binarizer.inverse_transform(answers)
-
-    joined_pred = np.zeros(n_test, dtype=object)
-    for row in range(n_test):
-        joined_pred[row] = " ".join(pred[row, :])
-
-    return joined_pred
 
 if __name__ == "__main__":
     train_df = pd.read_csv("../data/train.csv", index_col="fname")

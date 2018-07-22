@@ -21,7 +21,7 @@ Tensor = Any
 TOPK = 3
 
 PREDICT_ONLY    = False
-ENABLE_KFOLD    = False
+ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
 KFOLDS          = 10
 USE_HYPEROPT    = False
@@ -105,8 +105,8 @@ def make_reg(reg: str) -> Any:
     return keras.regularizers.l2(float(10 ** r)) if r >= -5 else None
 
 lr_cycle_len        = 5
-min_lr              = 1e-5
-max_lr              = 1e-3
+min_lr              = 10 ** -5
+max_lr              = 10 ** -3.5
 
 def cyclic_lr(epoch: int) -> float:
     cycle = np.floor(1 + epoch / (2 * lr_cycle_len))
@@ -118,11 +118,11 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     """ Creates model with given parameters. """
     print("training with params", params)
 
-    global lr_cycle_len, min_lr, max_lr
-
-    lr_cycle_len        = int(params["lr_cycle_len"])
-    min_lr              = 10 ** float(params["min_lr"])
-    max_lr              = 10 ** float(params["max_lr"])
+    # global lr_cycle_len, min_lr, max_lr
+    #
+    # lr_cycle_len        = int(params["lr_cycle_len"])
+    # min_lr              = 10 ** float(params["min_lr"])
+    # max_lr              = 10 ** float(params["max_lr"])
 
     cnn_dropout_enable  = False # float(params["cnn_dropout_enable"])
     cnn_dropout_coeff   = 0 # float(params["cnn_dropout_coeff"])
@@ -217,8 +217,8 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
                   metrics=["accuracy"])
 
     map3 = Map3Metric(val_datagen, name)
-    early_stopping = keras.callbacks.EarlyStopping(monitor='val_acc',
-                        min_delta=0.0001, patience=10, verbose=1)
+    early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
+                        min_delta=0.001, patience=10, verbose=1)
     lr_shed = keras.callbacks.LearningRateScheduler(cyclic_lr, verbose=1)
 
     model.fit_generator(train_datagen, epochs=NUM_EPOCHS,
@@ -364,7 +364,16 @@ if __name__ == "__main__":
             x_val, y_val = train_files[val_idx], train_labels[val_idx]
 
             if not PREDICT_ONLY:
-                params = {}
+                params = {
+                    'cnn_depth': 34.0,
+                    'cnn_depth_growth': 1.25,
+                    'cnn_dim_decay': 1,
+                    'cnn_kern_height': 2.0,
+                    'cnn_kern_width': 1.0,
+                    'num_cnn_layers': 6.0,
+                    'num_hidden': 61.0,
+                    'padding': 'same'
+                }
 
                 train_datagen = SoundDatagen(x_train, y_train)
                 val_datagen = SoundDatagen(x_val, y_val)

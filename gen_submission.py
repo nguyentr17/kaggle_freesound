@@ -13,6 +13,7 @@ NpArray = Any
 NUM_CLASSES     = 41
 TOPK            = 3
 
+
 def merge_predictions(pred: NpArray, mode: str, axis: int) -> NpArray:
     """ Merges predictions for all clips and returns a single prediction. """
     assert(pred.shape[-1] == NUM_CLASSES)
@@ -48,7 +49,6 @@ def encode_predictions(y_test: NpArray) -> NpArray:
         joined_pred[row] = " ".join(pred[row, :])
 
     return joined_pred
-
 
 if __name__ == "__main__":
     if len(sys.argv) < 4:
