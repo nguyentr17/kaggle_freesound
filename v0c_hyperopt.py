@@ -209,18 +209,18 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.stop_training = True
             print("stopping training because MAP@3 growth has stopped")
 
-lr_cycle_len        = 5
+lr_cycle_len        = 4
 min_lr              = 10 ** -5.5
 max_lr              = 10 ** -4
 
 def cyclic_lr(epoch: int) -> float:
-    global lr_cycle_len, min_lr, max_lr
+    effective_max_lr = max_lr
     if epoch != 0 and epoch % 20 == 0:
-        max_lr *= 0.1
+        effective_max_lr *= 0.1
 
     cycle = np.floor(1 + epoch / (2 * lr_cycle_len))
     x = abs(epoch / lr_cycle_len - 2 * cycle + 1)
-    lr = min_lr + (max_lr - min_lr) * min(1, x)
+    lr = min_lr + (effective_max_lr - min_lr) * min(1, x)
     return lr
 
 def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float:
