@@ -182,6 +182,7 @@ class Map3Metric(keras.callbacks.Callback):
 
         self.best_map3 = 0.0
         self.best_epoch = 0
+        self.last_map3  = 0.0
 
         self.last_best_map3 = 0.0
         self.last_best_epoch = 0
@@ -190,7 +191,7 @@ class Map3Metric(keras.callbacks.Callback):
 
     def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
         predict = self.model.predict(self.x_val)
-        map3 = map3_metric(predict, self.y_val)
+        self.last_map3 = map3 = map3_metric(predict, self.y_val)
         print("epoch %d MAP@3 %.4f" % (epoch, map3))
 
         if map3 > self.best_map3:
