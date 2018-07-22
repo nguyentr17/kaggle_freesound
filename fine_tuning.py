@@ -1,28 +1,27 @@
 #!/usr/bin/python3.6
 
-import glob, os, pickle, sys
+import glob, os, pickle, sys, time
 from typing import *
+from math import log
 
 import numpy as np, pandas as pd, scipy as sp
 import keras
 
 from sklearn.preprocessing import LabelBinarizer
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import KFold
+from sklearn.model_selection import train_test_split, KFold
 
 from data import load_dataset
 
 
 NpArray = Any
-Tensor = Any
 
 TOPK = 3
 
 CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0]
 DATA_VERSION    = 0x01
 
-PREDICT_ONLY    = True
-ENABLE_KFOLD    = True
+PREDICT_ONLY    = False
+ENABLE_KFOLD    = False
 TEST_SIZE       = 0.2
 KFOLDS          = 10
 
@@ -30,11 +29,8 @@ NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
 
 # Network hyperparameters
+NUM_EPOCHS      = 100
 BATCH_SIZE      = 32
-NUM_EPOCHS      = 200
-NUM_HIDDEN1     = 200
-NUM_HIDDEN2     = 200
-DROPOUT_COEFF   = 0.1
 
 
 def find_files(path: str) -> List[str]:
@@ -154,9 +150,26 @@ def get_best_model_path(name: str) -> str:
     """ Returns the path of the best model. """
     return get_model_path("%s_best" % name)
 
-def make_reg(reg: str) -> Any:
-    r = float(reg)
-    return keras.regularizers.l2(float(10 ** r)) if r >= -5 else None
+def make_reg(reg: float) -> Any:
+    return keras.regularizers.l2(10 ** reg) if reg >= -6 else None
+
+class TimedStopping(keras.callbacks.Callback):
+    """ Stop training when enough time has passed. """
+    def __init__(self, timeout: float, verbose: int = 0) -> None:
+        super(keras.callbacks.Callback, self).__init__()
+
+        self.start_time = 0.0
+        self.seconds = timeout
+        self.verbose = verbose
+
+    def on_train_begin(self, logs: Any = {}) -> None:
+        self.start_time = time.time()
+
+    def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
+        if time.time() - self.start_time > self.seconds:
+            self.model.stop_training = True
+            if self.verbose:
+                print("stopping after %s seconds." % self.seconds)
 
 class Map3Metric(keras.callbacks.Callback):
     """ Keras callback that calculates MAP3 metric. """
@@ -167,10 +180,16 @@ class Map3Metric(keras.callbacks.Callback):
 
         self.best_map3 = 0.0
         self.best_epoch = 0
+        self.last_map3  = 0.0
+
+        self.last_best_map3 = 0.0
+        self.last_best_epoch = 0
+        self.max_epochs = 5
+        self.min_threshold = 0.01
 
     def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
         predict = self.model.predict(self.x_val)
-        map3 = map3_metric(predict, self.y_val)
+        self.last_map3 = map3 = map3_metric(predict, self.y_val)
         print("epoch %d MAP@3 %.4f" % (epoch, map3))
 
         if map3 > self.best_map3:
@@ -180,75 +199,44 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.save(get_model_path("%s_val_%.4f" % (self.name, map3)))
             self.model.save(get_best_model_path(self.name))
 
-lr_cycle_len        = 5
-min_lr              = 10 ** -5.5
-max_lr              = 10 ** -4
+        # # Optionally do early stopping basing on MAP@3 metric
+        # if map3 > self.last_best_map3 + self.min_threshold:
+        #     self.last_best_map3 = map3
+        #     self.last_best_epoch = epoch
+        # elif epoch >= self.last_best_epoch + self.max_epochs:
+        #     self.model.stop_training = True
+        #     print("stopping training because MAP@3 growth has stopped")
+
+lr_cycle_len        = 4
+min_lr              = 10 ** -6
+max_lr              = 10 ** -5
 
 def cyclic_lr(epoch: int) -> float:
+    effective_max_lr = max_lr
+    # if epoch != 0 and epoch % 20 == 0:
+    #     effective_max_lr *= 0.1
+
     cycle = np.floor(1 + epoch / (2 * lr_cycle_len))
     x = abs(epoch / lr_cycle_len - 2 * cycle + 1)
-    lr = min_lr + (max_lr - min_lr) * min(1, x)
+    lr = min_lr + (effective_max_lr - min_lr) * min(1, x)
     return lr
 
-def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
-                NpArray, model_name: str) -> Any:
-    """ Creates model and trains it. Returns trained model. """
-    fc_bias_reg = fc_activity_reg = fc_kernel_reg = make_reg("-4.5")
-
-    x = inp = keras.layers.Input(shape=x_train.shape[1:])
-    x = keras.layers.Reshape((x_train.shape[1], x_train.shape[2], 1))(x)
-
-    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
-    x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.Activation("relu")(x)
-    x = keras.layers.MaxPool2D()(x)
-
-    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
-    x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.Activation("relu")(x)
-    x = keras.layers.MaxPool2D()(x)
-
-    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
-    x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.Activation("relu")(x)
-    x = keras.layers.MaxPool2D()(x)
-
-    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
-    x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.Activation("relu")(x)
-    x = keras.layers.MaxPool2D()(x)
-
-    x = keras.layers.Flatten()(x)
-    x = keras.layers.Dense(64,
-                           kernel_regularizer=fc_kernel_reg,
-                           bias_regularizer=fc_bias_reg,
-                           activity_regularizer=fc_activity_reg
-                           )(x)
-    x = keras.layers.Dropout(0.6)(x)
-    x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.Activation("relu")(x)
-
-    out = keras.layers.Dense(NUM_CLASSES,
-                             kernel_regularizer=fc_kernel_reg,
-                             bias_regularizer=fc_bias_reg,
-                             activity_regularizer=fc_activity_reg,
-                             activation="softmax")(x)
-
-    model = keras.models.Model(inputs=inp, outputs=out)
+def train(model_name: str, name: str = "nofolds") -> None:
+    """ Loads model from file and trains it. """
+    model = keras.models.load_model(model_name)
     model.summary()
 
-    model.compile(loss="categorical_crossentropy", optimizer="adam",
-                  metrics=["accuracy"])
-
-    map3 = Map3Metric(x_val, y_val, model_name)
+    map3 = Map3Metric(x_val, y_val, name)
+    # early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
+    #                     min_delta=0.01, patience=10, verbose=1)
     lr_shed = keras.callbacks.LearningRateScheduler(cyclic_lr, verbose=1)
+    time_stopping = TimedStopping(timeout=15*60*60, verbose=1)
 
     model.fit(x_train, y_train, batch_size=BATCH_SIZE, epochs=NUM_EPOCHS,
               verbose=1, validation_data=[x_val, y_val],
-              callbacks=[map3, lr_shed])
+              callbacks=[map3, lr_shed, time_stopping])
 
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
-    return model
 
 def merge_predictions(pred: NpArray, mode: str, axis: int) -> NpArray:
     """ Merges predictions for all clips and returns a single prediction. """
@@ -288,6 +276,10 @@ def predict(x_test: NpArray, label_binarizer: Any, clips_per_sample: List[int],
     return y_test
 
 if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("usage: %s <saved_model.hdf5>" % sys.argv[0])
+        sys.exit()
+
     train_df = pd.read_csv("../data/train.csv", index_col="fname")
     train_indices = range(train_df.shape[0])
 
@@ -295,12 +287,13 @@ if __name__ == "__main__":
     test_idx = [os.path.basename(f) for f in test_files]
 
     if not ENABLE_KFOLD:
-        train_idx, val_idx = train_test_split(train_indices, test_size=TEST_SIZE)
+        train_idx, val_idx = train_test_split(train_indices, shuffle=False,
+                                              test_size=TEST_SIZE)
         x_train, y_train, x_val, y_val, x_test, label_binarizer, \
             clips_per_sample = load_data(train_idx, val_idx)
 
         if not PREDICT_ONLY:
-            train_model(x_train, x_val, y_train, y_val, "nofolds")
+            train(sys.argv[1])
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
     else:
@@ -315,7 +308,7 @@ if __name__ == "__main__":
             name = "fold_%d" % k
 
             if not PREDICT_ONLY:
-                train_model(x_train, x_val, y_train, y_val, name)
+                train(sys.argv[1])
 
             pred[:, k, :] = predict(x_test, label_binarizer, clips_per_sample, name)
 
