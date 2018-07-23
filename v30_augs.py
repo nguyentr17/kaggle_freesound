@@ -26,13 +26,14 @@ PREDICT_ONLY    = False
 ENABLE_KFOLD    = False
 TEST_SIZE       = 0.2
 KFOLDS          = 10
-USE_HYPEROPT    = False
+USE_HYPEROPT    = True
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
+MAX_MFCC        = 40
 
 # Network hyperparameters
-NUM_EPOCHS      = 1 # 50
+NUM_EPOCHS      = 50
 
 
 def find_files(path: str) -> List[str]:
@@ -119,6 +120,10 @@ def load_data(train_idx: NpArray, val_idx: NpArray) -> \
     x_train = np.expand_dims(x_train, -1)
     x_val = np.expand_dims(x_val, -1)
     x_test = np.expand_dims(x_test, -1)
+
+    x_train = x_train[:, :MAX_MFCC, ...]
+    x_val = x_val[:, :MAX_MFCC, ...]
+    x_test = x_test[:, :MAX_MFCC, ...]
 
     print("x_train.shape", x_train.shape, "y_train.shape", y_train.shape)
     print("x_val.shape", x_val.shape, "y_val.shape", y_val.shape)
@@ -207,7 +212,7 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.save(get_best_model_path(self.name))
 
         # Optionally do early stopping basing on MAP@3 metric
-        if map3 > self.last_best_map3 + self.min_threshold:
+        if self.best_map3 > self.last_best_map3 + self.min_threshold:
             self.last_best_map3 = map3
             self.last_best_epoch = epoch
         elif epoch >= self.last_best_epoch + self.max_epochs:
@@ -216,7 +221,7 @@ class Map3Metric(keras.callbacks.Callback):
 
 lr_cycle_len        = 4
 min_lr              = 10 ** -5.5
-max_lr              = 10 ** -4
+max_lr              = 10 ** -4.5
 
 def cyclic_lr(epoch: int) -> float:
     effective_max_lr = max_lr
@@ -234,10 +239,10 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
 
     batch_size      = int(params["batch_size"])
     num_hidden      = int(params["num_hidden"])
-    num_fc_layers   = 0  # int(params["num_fc_layers"])
-    num_conv_layers = 3  # int(params["num_conv_layers"])
-    conv_depth      = 32 # int(params["conv_depth"])
-    conv_depth_mul  = 1  # float(params["conv_depth_mul"])
+    num_fc_layers   = int(params["num_fc_layers"])
+    num_conv_layers = int(params["num_conv_layers"])
+    conv_depth      = int(params["conv_depth"])
+    conv_depth_mul  = float(params["conv_depth_mul"])
     conv_width      = int(params["conv_width"])
     conv_height     = int(params["conv_height"])
     pooling_size    = int(params["pooling_size"])
@@ -424,7 +429,7 @@ if __name__ == "__main__":
                                                              "global_max", "global_avg"]),
             "dropout_coeff"     : hp.uniform("dropout_coeff", 0.4, 0.6),
             "reg_coeff"         : hp.uniform("reg_coeff", -5, -3),
-            "residuals"         : hp.choice("residuals", ["resnet", "densenet", ""]),
+            # "residuals"         : hp.choice("residuals", ["resnet", "densenet", ""]),
         }
 
         best = fmin(fn=train_model_with_params, space=hyperopt_space,
