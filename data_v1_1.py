@@ -237,7 +237,7 @@ class MixupGenerator(keras.utils.Sequence):
         if self.datagen:
             for i in range(self.batch_size):
                 X[i] = self.datagen.random_transform(X[i])
-                X[i] = self.datagen.standardize(X[i])
+                # X[i] = self.datagen.standardize(X[i])
 
         if isinstance(self.y_train, list):
             y = []

@@ -27,7 +27,7 @@ KFOLDS          = 10
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
-MAX_MFCC        = 40
+MAX_MFCC        = 20
 
 # Network hyperparameters
 NUM_EPOCHS      = 20
@@ -219,7 +219,7 @@ class Map3Metric(keras.callbacks.Callback):
 
 lr_cycle_len        = 4
 min_lr              = 10 ** -6
-max_lr              = 10 ** -3
+max_lr              = 10 ** -4.5
 
 def cyclic_lr(epoch: int) -> float:
     effective_max_lr = max_lr
@@ -319,7 +319,7 @@ if __name__ == "__main__":
         if not PREDICT_ONLY:
             train(sys.argv[1], name)
 
-        pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
+        pred = predict(x_test, label_binarizer, clips_per_sample, name)
     else:
         kf = KFold(n_splits=KFOLDS, shuffle=False)
         pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))

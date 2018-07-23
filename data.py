@@ -10,6 +10,8 @@ from tqdm import tqdm
 
 NpArray = Any
 
+DATA_VERSION = 1
+
 SAMPLE_RATE = 44100
 
 # Data parameters
