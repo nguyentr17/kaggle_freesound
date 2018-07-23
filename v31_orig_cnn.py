@@ -9,12 +9,14 @@ import keras
 
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split, KFold
+from hyperopt import hp, tpe, fmin
 
 from data_v1_1 import load_dataset, DATA_VERSION
 from data_v1_1 import get_random_eraser, MixupGenerator
 
 
 NpArray = Any
+Tensor = Any
 
 TOPK = 3
 
@@ -24,14 +26,14 @@ PREDICT_ONLY    = False
 ENABLE_KFOLD    = False
 TEST_SIZE       = 0.2
 KFOLDS          = 10
+USE_HYPEROPT    = False
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
-MAX_MFCC        = 40
+MAX_MFCC        = 20
 
 # Network hyperparameters
-NUM_EPOCHS      = 20
-BATCH_SIZE      = 32
+NUM_EPOCHS      = 100
 
 
 def find_files(path: str) -> List[str]:
@@ -154,7 +156,7 @@ def map3_metric(predict: NpArray, ground_truth: NpArray) -> float:
 
 def get_model_path(name: str) -> str:
     """ Builds the path of the model file. """
-    return "../models/%s.hdf5" % name
+    return "../models/%s__%s.hdf5" % (CODE_VERSION, name)
 
 def get_best_model_path(name: str) -> str:
     """ Returns the path of the best model. """
@@ -218,8 +220,8 @@ class Map3Metric(keras.callbacks.Callback):
         #     print("stopping training because MAP@3 growth has stopped")
 
 lr_cycle_len        = 4
-min_lr              = 10 ** -6
-max_lr              = 10 ** -3
+min_lr              = 10 ** -5.5
+max_lr              = 10 ** -4
 
 def cyclic_lr(epoch: int) -> float:
     effective_max_lr = max_lr
@@ -231,10 +233,50 @@ def cyclic_lr(epoch: int) -> float:
     lr = min_lr + (effective_max_lr - min_lr) * min(1, x)
     return lr
 
-def train(model_name: str, name: str = "nofolds") -> None:
-    """ Loads model from file and trains it. """
-    model = keras.models.load_model(model_name)
+def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float:
+    """ Creates model with given parameters. """
+    print("training with params", params)
+
+    batch_size = int(params["batch_size"])
+
+    x = inp = keras.layers.Input(shape=(x_train.shape[1], x_train.shape[2], 1))
+    # x = keras.layers.Reshape((x_train.shape[1], x_train.shape[2], 1))(x)
+
+    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Activation("relu")(x)
+    x = keras.layers.MaxPool2D()(x)
+
+    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Activation("relu")(x)
+    x = keras.layers.MaxPool2D()(x)
+
+    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Activation("relu")(x)
+    x = keras.layers.MaxPool2D()(x)
+
+    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Activation("relu")(x)
+    x = keras.layers.MaxPool2D()(x)
+
+    x = keras.layers.Flatten()(x)
+    x = keras.layers.Dense(64)(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Activation("relu")(x)
+
+    out = keras.layers.Dense(NUM_CLASSES, activation="softmax")(x)
+
+    model = keras.models.Model(inputs=inp, outputs=out)
     model.summary()
+
+    model.compile(loss="categorical_crossentropy", optimizer="adam",
+                  metrics=["accuracy"])
+
+    if model.count_params() >= 4 * 10 ** 6:
+        return 0.5
 
     map3 = Map3Metric(x_val, y_val, name)
     # early_stopping = keras.callbacks.EarlyStopping(monitor='val_loss',
@@ -248,16 +290,18 @@ def train(model_name: str, name: str = "nofolds") -> None:
         preprocessing_function=
             get_random_eraser(v_l=np.min(x_train), v_h=np.max(x_train)) # random eraser
     )
-    mixupgen = MixupGenerator(x_train, y_train, alpha=1.0, batch_size=BATCH_SIZE,
+    mixupgen = MixupGenerator(x_train, y_train, alpha=1.0, batch_size=batch_size,
                               datagen=datagen)
 
     model.fit_generator(mixupgen,
                         epochs=NUM_EPOCHS, verbose=1,
                         validation_data=[x_val, y_val],
                         use_multiprocessing=True, workers=12,
+                        # callbacks=[map3, lr_shed, time_stopping])
                         callbacks=[map3, lr_shed])
 
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
+    return map3.last_map3
 
 def merge_predictions(pred: NpArray, mode: str, axis: int) -> NpArray:
     """ Merges predictions for all clips and returns a single prediction. """
@@ -278,7 +322,7 @@ def predict(x_test: NpArray, label_binarizer: Any, clips_per_sample: List[int],
     print("predicting results")
     model = keras.models.load_model(get_best_model_path(model_name))
 
-    y_test = model.predict(x_test)
+    y_test = model.predict(x_test, verbose=1)
     print("y_test.shape after predict", y_test.shape)
 
     pos = 0
@@ -297,27 +341,66 @@ def predict(x_test: NpArray, label_binarizer: Any, clips_per_sample: List[int],
     return y_test
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("usage: %s <saved_model.hdf5>" % sys.argv[0])
-        sys.exit()
-
     train_df = pd.read_csv("../data/train.csv", index_col="fname")
     train_indices = range(train_df.shape[0])
 
     test_files = find_files("../data/audio_test/")
     test_idx = [os.path.basename(f) for f in test_files]
 
-    name = os.path.basename(sys.argv[1])
-    name = os.path.splitext(name)[0]
+    if USE_HYPEROPT:
+        train_idx, val_idx = train_test_split(train_indices, shuffle=False,
+                                              test_size=TEST_SIZE)
+        x_train, y_train, x_val, y_val, x_test, label_binarizer, \
+            clips_per_sample = load_data(train_idx, val_idx)
 
-    if not ENABLE_KFOLD:
+
+        '''
+        batch_size      = int(params["batch_size"])
+        num_hidden      = int(params["num_hidden"])
+        num_fc_layers   = int(params["num_fc_layers"])
+        num_conv_layers = int(params["num_conv_layers"])
+        conv_depth      = int(params["conv_depth"])
+        conv_depth_mul  = int(params["conv_depth"])
+        conv_width      = int(params["conv_width"])
+        conv_height     = int(params["conv_height"])
+        pooling_size    = int(params["pooling_size"])
+        pooling_type    = params["pooling_type"]
+        dropout_coeff   = float(params["dropout_coeff"])
+        reg_coeff       = float(params["reg_coeff"])
+        residuals       = params["residuals"]
+        '''
+
+        hyperopt_space = {
+            "batch_size"        : hp.choice("batch_size", [16, 32, 64]),
+            "num_hidden"        : hp.qloguniform("num_hidden", log(41), log(100), 1),
+            "num_fc_layers"     : hp.choice("num_fc_layers", [0, 1, 2]),
+            "num_conv_layers"   : hp.quniform("num_conv_layers", 4, 10, 1),
+            "conv_depth"        : hp.quniform("conv_depth", 16, 50, 1),
+            "conv_depth_mul"    : hp.loguniform("conv_depth_mul", log(1), log(2)),
+            "conv_width"        : hp.quniform("conv_width", 1, 10, 1),
+            "conv_height"       : hp.quniform("conv_height", 1, 20, 1),
+            "pooling_size"      : hp.choice("pooling_size", [2, 3]),
+            "pooling_type"      : hp.choice("pooling_type", ["local_max", "local_avg",
+                                                             "global_max", "global_avg"]),
+            "dropout_coeff"     : hp.uniform("dropout_coeff", 0.4, 0.6),
+            "reg_coeff"         : hp.uniform("reg_coeff", -5, -3),
+            "residuals"         : hp.choice("residuals", ["resnet", "densenet", ""]),
+        }
+
+        best = fmin(fn=train_model_with_params, space=hyperopt_space,
+                    algo=tpe.suggest, max_evals=50)
+        print("best params:", best)
+
+        pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
+    elif not ENABLE_KFOLD:
         train_idx, val_idx = train_test_split(train_indices, shuffle=False,
                                               test_size=TEST_SIZE)
         x_train, y_train, x_val, y_val, x_test, label_binarizer, \
             clips_per_sample = load_data(train_idx, val_idx)
 
         if not PREDICT_ONLY:
-            train(sys.argv[1], name)
+            params : Dict[str, Any] = { "batch_size": 32 }
+            train_model_with_params(params)
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
     else:
@@ -329,10 +412,11 @@ if __name__ == "__main__":
 
             x_train, y_train, x_val, y_val, x_test, label_binarizer, \
                 clips_per_sample = load_data(train_idx, val_idx)
-            name = name + "_fold_%d" % k
+            name = "fold_%d" % k
 
             if not PREDICT_ONLY:
-                train(sys.argv[1])
+                params = { "batch_size": 32 }
+                train_model_with_params(params, name)
 
             pred[:, k, :] = predict(x_test, label_binarizer, clips_per_sample, name)
 
