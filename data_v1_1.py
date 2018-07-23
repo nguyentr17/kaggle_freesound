@@ -5,6 +5,7 @@ from typing import *
 
 import numpy as np
 import librosa
+import keras
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
@@ -197,7 +198,7 @@ def get_random_eraser(p: float = 0.5, s_l: float = 0.02, s_h: float = 0.4,
 
     return eraser
 
-class MixupGenerator():
+class MixupGenerator(keras.utils.Sequence):
     """ Implements mixup of audio clips. """
     def __init__(self, X_train: NpArray, y_train: NpArray, batch_size: int = 32,
                  alpha: float = 0.2, shuffle: bool = True, datagen: Any = None) -> None:
@@ -208,17 +209,7 @@ class MixupGenerator():
         self.shuffle = shuffle
         self.sample_num = len(X_train)
         self.datagen = datagen
-
-    def __call__(self): # type: ignore
-        while True:
-            indexes = self.__get_exploration_order()
-            itr_num = int(len(indexes) // (self.batch_size * 2))
-
-            for i in range(itr_num):
-                batch_ids = indexes[i * self.batch_size * 2:(i + 1) * self.batch_size * 2]
-                X, y = self.__data_generation(batch_ids)
-
-                yield X, y
+        self.indexes = self.__get_exploration_order()
 
     def __get_exploration_order(self) -> NpArray:
         indexes = np.arange(self.sample_num)
@@ -228,7 +219,12 @@ class MixupGenerator():
 
         return indexes
 
-    def __data_generation(self, batch_ids: NpArray) -> Tuple[NpArray, NpArray]:
+    def __len__(self) -> int:
+        return int(len(self.indexes) // (self.batch_size * 2))
+
+    def __getitem__(self, i: int) -> np.array:
+        batch_ids = self.indexes[i * self.batch_size * 2 :
+                                 (i + 1) * self.batch_size * 2]
         _, h, w, c = self.X_train.shape
         l = np.random.beta(self.alpha, self.alpha, self.batch_size)
         X_l = l.reshape(self.batch_size, 1, 1, 1)

@@ -334,10 +334,10 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     mixupgen = MixupGenerator(x_train, y_train, alpha=1.0, batch_size=batch_size,
                               datagen=datagen)
 
-    model.fit_generator(mixupgen(),
-                        steps_per_epoch=int(np.ceil(x_train.shape[0] / batch_size)),
+    model.fit_generator(mixupgen,
                         epochs=NUM_EPOCHS, verbose=1,
                         validation_data=[x_val, y_val],
+                        use_multiprocessing=True, workers=12,
                         callbacks=[map3, lr_shed, time_stopping])
 
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
