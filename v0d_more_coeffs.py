@@ -11,7 +11,7 @@ from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split, KFold
 from hyperopt import hp, tpe, fmin
 
-from data import load_dataset
+from data_v1_1 import load_dataset, DATA_VERSION
 
 
 NpArray = Any
@@ -20,7 +20,6 @@ Tensor = Any
 TOPK = 3
 
 CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0]
-DATA_VERSION    = 0x01
 
 PREDICT_ONLY    = False
 ENABLE_KFOLD    = False
@@ -74,8 +73,8 @@ def load_data(train_idx: NpArray, val_idx: NpArray) -> \
     """ Loads all data. """
     train_df = pd.read_csv("../data/train.csv", index_col="fname")
 
-    train_cache = "../output/train_cache_v%02d.pkl" % DATA_VERSION
-    test_cache = "../output/test_cache_v%02d.pkl" % DATA_VERSION
+    train_cache = "../output/train_cache_v%02x.pkl" % DATA_VERSION
+    test_cache = "../output/test_cache_v%02x.pkl" % DATA_VERSION
 
     print("reading train dataset")
     if os.path.exists(train_cache):
@@ -239,7 +238,7 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     pooling_type    = params["pooling_type"]
     dropout_coeff   = float(params["dropout_coeff"])
     reg_coeff       = float(params["reg_coeff"])
-    residuals       = params["residuals"]
+    residuals       = "" # params["residuals"]
 
     if residuals is not "":
         conv_depth_mul = 1
