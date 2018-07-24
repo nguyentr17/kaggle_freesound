@@ -272,7 +272,14 @@ def merge_predictions(pred: NpArray, mode: str, axis: int) -> NpArray:
     elif mode == "max":
         return np.max(pred, axis=axis)
     elif mode == "geom_mean":
-        return sp.stats.gmean(pred, axis=axis)
+        # this code is same as in scipy, but it prevents warning
+        res = 1
+
+        for i in range(pred.shape[axis]):
+            res = res * np.take(pred, i, axis=axis)
+
+        return res ** (1 / pred.shape[axis])
+        # return sp.stats.gmean(pred, axis=axis)
     else:
         assert(False)
 
