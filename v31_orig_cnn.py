@@ -285,8 +285,8 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     # time_stopping = TimedStopping(timeout=15*60*60, verbose=1)
 
     datagen = keras.preprocessing.image.ImageDataGenerator(
-        width_shift_range=0.4,  # randomly shift images horizontally (fraction of total width)
-        horizontal_flip=True,   # randomly flip images
+        # width_shift_range=0.4,  # randomly shift images horizontally (fraction of total width)
+        # horizontal_flip=True,   # randomly flip images
         # preprocessing_function=
         #     get_random_eraser(v_l=np.min(x_train), v_h=np.max(x_train)) # random eraser
     )
@@ -304,7 +304,8 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
                         validation_data=[x_val, y_val],
                         # use_multiprocessing=True, workers=12,
                         # callbacks=[map3, lr_shed, time_stopping])
-                        callbacks=[map3, lr_shed])
+                        # callbacks=[map3, lr_shed])
+                        callbacks=[map3])
 
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
     return map3.last_map3

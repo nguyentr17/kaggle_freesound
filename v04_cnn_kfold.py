@@ -22,7 +22,7 @@ CODE_VERSION    = 0x05
 DATA_VERSION    = 0x01
 
 PREDICT_ONLY    = False
-ENABLE_KFOLD    = True
+ENABLE_KFOLD    = False
 TEST_SIZE       = 0.2
 KFOLDS          = 10
 

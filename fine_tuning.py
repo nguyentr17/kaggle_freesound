@@ -11,7 +11,7 @@ from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split, KFold
 
 from data_v1_1 import load_dataset, DATA_VERSION
-from data_v1_1 import get_random_eraser, MixupGenerator
+from data_v1_1 import get_random_eraser, MixupGenerator, AugGenerator
 
 
 NpArray = Any
@@ -248,10 +248,12 @@ def train(model_name: str, name: str = "nofolds") -> None:
         preprocessing_function=
             get_random_eraser(v_l=np.min(x_train), v_h=np.max(x_train)) # random eraser
     )
-    mixupgen = MixupGenerator(x_train, y_train, alpha=1.0, batch_size=BATCH_SIZE,
-                              datagen=datagen)
+    # mixupgen = MixupGenerator(x_train, y_train, alpha=1.0, batch_size=BATCH_SIZE,
+    #                           datagen=datagen)
+    augdatagen = AugGenerator(x_train, y_train, alpha=1.0, batch_size=BATCH_SIZE,
+                              datagen=None, shuffle=False)
 
-    model.fit_generator(mixupgen,
+    model.fit_generator(augdatagen,
                         epochs=NUM_EPOCHS, verbose=1,
                         validation_data=[x_val, y_val],
                         use_multiprocessing=True, workers=12,

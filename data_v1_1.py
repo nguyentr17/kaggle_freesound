@@ -257,6 +257,7 @@ class AugGenerator(keras.utils.Sequence):
     def __init__(self, x_train: NpArray, y_train: NpArray, batch_size: int = 32,
                  alpha: float = 0.2, shuffle: bool = True, datagen: Any = None) -> None:
         self.x_train = x_train
+        print("x_train", self.x_train.shape)
         self.y_train = y_train
         self.batch_size = batch_size
         self.alpha = alpha
