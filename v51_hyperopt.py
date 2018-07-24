@@ -23,8 +23,8 @@ CODE_VERSION    = 0x51
 DATA_VERSION    = 0x01
 
 PREDICT_ONLY    = False
-ENABLE_KFOLD    = False
-ENABLE_HYPEROPT = True
+ENABLE_KFOLD    = True
+ENABLE_HYPEROPT = False
 TEST_SIZE       = 0.2
 KFOLDS          = 10
 
@@ -33,10 +33,7 @@ SAMPLE_RATE     = 44100
 
 # Network hyperparameters
 BATCH_SIZE      = 32
-NUM_EPOCHS      = 50
-NUM_HIDDEN1     = 200
-NUM_HIDDEN2     = 200
-DROPOUT_COEFF   = 0.1
+NUM_EPOCHS      = 70
 
 
 def find_files(path: str) -> List[str]:
@@ -166,6 +163,11 @@ class Map3Metric(keras.callbacks.Callback):
         self.best_map3 = 0.0
         self.best_epoch = 0
 
+        self.last_best_map3 = 0.0
+        self.last_best_epoch = 0
+        self.max_epochs = 15
+        self.min_threshold = 0.001
+
     def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
         predict = self.model.predict(self.x_val)
         map3 = map3_metric(predict, self.y_val)
@@ -178,12 +180,23 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.save(get_model_path("%s_val_%.4f" % (self.name, map3)))
             self.model.save(get_best_model_path(self.name))
 
-def train_model(params: Dict[str, str], name: str ="nofolds") -> float:
+        # Optionally do early stopping, basing on MAP@3 metric
+        if self.best_map3 > self.last_best_map3 + self.min_threshold:
+            self.last_best_map3 = map3
+            self.last_best_epoch = epoch
+        elif epoch >= self.last_best_epoch + self.max_epochs:
+            self.model.stop_training = True
+            print("stopping training because MAP@3 growth has stopped")
+
+def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
     """ Creates model and trains it. Returns MAP@3 metric. """
     dropout_coeff   = float(params["dropout_coeff"])
     reg_coeff       = float(params["reg_coeff"])
     reg_coeff2      = float(params["reg_coeff2"])
-    # TODO: search for the best number of neurons
+    conv_depth      = 32 # int(params["conv_depth"])
+    num_hidden      = 64 # int(params["num_hidden"])
+
+    # TODO: search for the convolution size and pooling size
 
     print("training with params", params)
 
@@ -193,28 +206,28 @@ def train_model(params: Dict[str, str], name: str ="nofolds") -> float:
     x = inp = keras.layers.Input(shape=x_train.shape[1:])
     x = keras.layers.Reshape((x_train.shape[1], x_train.shape[2], 1))(x)
 
-    x = keras.layers.Convolution2D(32, (4, 10), padding="same")(x)
+    x = keras.layers.Convolution2D(conv_depth, (4, 10), padding="same")(x)
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
     x = keras.layers.MaxPool2D()(x)
 
-    x = keras.layers.Convolution2D(32, (4, 10), padding="same")(x)
+    x = keras.layers.Convolution2D(conv_depth, (4, 10), padding="same")(x)
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
     x = keras.layers.MaxPool2D()(x)
 
-    x = keras.layers.Convolution2D(32, (4, 10), padding="same")(x)
+    x = keras.layers.Convolution2D(conv_depth, (4, 10), padding="same")(x)
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
     x = keras.layers.MaxPool2D()(x)
 
-    x = keras.layers.Convolution2D(32, (4, 10), padding="same")(x)
+    x = keras.layers.Convolution2D(conv_depth, (4, 10), padding="same")(x)
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
     x = keras.layers.MaxPool2D()(x)
 
     x = keras.layers.Flatten()(x)
-    x = keras.layers.Dense(65,
+    x = keras.layers.Dense(num_hidden,
                            kernel_regularizer=reg,
                            bias_regularizer=reg,
                            activity_regularizer=reg,
@@ -326,10 +339,12 @@ if __name__ == "__main__":
             "dropout_coeff"     : hp.uniform("dropout_coeff", 0, 0.6),
             "reg_coeff"         : hp.uniform("reg_coeff", -10, -3),
             "reg_coeff2"        : hp.uniform("reg_coeff2", -10, -3),
+            "conv_depth"        : hp.uniform("conv_depth", 20, 32),
+            "num_hidden"        : hp.uniform("num_hidden", 41, 65),
         }
 
         best = fmin(fn=train_model, space=hyperopt_space,
-                    algo=tpe.suggest, max_evals=200)
+                    algo=tpe.suggest, max_evals=20)
         print("best params:", best)
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
@@ -356,7 +371,12 @@ if __name__ == "__main__":
             name = "fold_%d" % k
 
             if not PREDICT_ONLY:
-                train_model({}, name=name)
+                params = {
+                    'dropout_coeff': 0.23478593260600703,
+                    'reg_coeff': -3.814507686779505,
+                    'reg_coeff2': -9.74411976300561
+                }
+                train_model(params, name=name)
 
             pred[:, k, :] = predict(x_test, label_binarizer, clips_per_sample, name)
 
