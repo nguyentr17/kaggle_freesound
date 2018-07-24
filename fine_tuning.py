@@ -30,7 +30,7 @@ SAMPLE_RATE     = 44100
 MAX_MFCC        = 20
 
 # Network hyperparameters
-NUM_EPOCHS      = 20
+NUM_EPOCHS      = 100
 BATCH_SIZE      = 32
 
 
@@ -219,7 +219,7 @@ class Map3Metric(keras.callbacks.Callback):
 
 lr_cycle_len        = 4
 min_lr              = 10 ** -6
-max_lr              = 10 ** -4.5
+max_lr              = 10 ** -5
 
 def cyclic_lr(epoch: int) -> float:
     effective_max_lr = max_lr

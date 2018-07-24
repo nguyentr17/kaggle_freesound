@@ -11,8 +11,8 @@ from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split, KFold
 from hyperopt import hp, tpe, fmin
 
-from data_v1_1 import load_dataset, DATA_VERSION
-from data_v1_1 import get_random_eraser, MixupGenerator
+from data import load_dataset, DATA_VERSION
+from data_v1_1 import get_random_eraser, MixupGenerator, AugGenerator
 
 
 NpArray = Any
@@ -287,16 +287,22 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     datagen = keras.preprocessing.image.ImageDataGenerator(
         width_shift_range=0.4,  # randomly shift images horizontally (fraction of total width)
         horizontal_flip=True,   # randomly flip images
-        preprocessing_function=
-            get_random_eraser(v_l=np.min(x_train), v_h=np.max(x_train)) # random eraser
+        # preprocessing_function=
+        #     get_random_eraser(v_l=np.min(x_train), v_h=np.max(x_train)) # random eraser
     )
-    mixupgen = MixupGenerator(x_train, y_train, alpha=1.0, batch_size=batch_size,
-                              datagen=datagen)
 
-    model.fit_generator(mixupgen,
+    # mixupgen = MixupGenerator(x_train, y_train, alpha=1.0, batch_size=batch_size)
+    # mixupgen = MixupGenerator(x_train, y_train, alpha=1.0, batch_size=batch_size,
+    #                           datagen=datagen)
+    augdatagen = AugGenerator(x_train, y_train, alpha=1.0, batch_size=batch_size,
+                              datagen=datagen, shuffle=False)
+
+    # model.fit(x_train, y_train, batch_size=batch_size, epochs=NUM_EPOCHS,
+    #           verbose=1, validation_data=[x_val, y_val], callbacks=[map3])
+    model.fit_generator(augdatagen,
                         epochs=NUM_EPOCHS, verbose=1,
                         validation_data=[x_val, y_val],
-                        use_multiprocessing=True, workers=12,
+                        # use_multiprocessing=True, workers=12,
                         # callbacks=[map3, lr_shed, time_stopping])
                         callbacks=[map3, lr_shed])
 

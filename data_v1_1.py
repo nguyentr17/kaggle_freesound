@@ -237,7 +237,6 @@ class MixupGenerator(keras.utils.Sequence):
         if self.datagen:
             for i in range(self.batch_size):
                 X[i] = self.datagen.random_transform(X[i])
-                # X[i] = self.datagen.standardize(X[i])
 
         if isinstance(self.y_train, list):
             y = []
@@ -252,3 +251,45 @@ class MixupGenerator(keras.utils.Sequence):
             y = y1 * y_l + y2 * (1 - y_l)
 
         return X, y
+
+class AugGenerator(keras.utils.Sequence):
+    """ Implements augmentations of audio clips. """
+    def __init__(self, x_train: NpArray, y_train: NpArray, batch_size: int = 32,
+                 alpha: float = 0.2, shuffle: bool = True, datagen: Any = None) -> None:
+        self.x_train = x_train
+        self.y_train = y_train
+        self.batch_size = batch_size
+        self.alpha = alpha
+        self.shuffle = shuffle
+        self.sample_num = len(x_train)
+        self.datagen = datagen
+        self.indexes = self.__get_exploration_order()
+
+    def __get_exploration_order(self) -> NpArray:
+        indexes = np.arange(self.sample_num)
+
+        if self.shuffle:
+            np.random.shuffle(indexes)
+
+        return indexes
+
+    def __len__(self) -> int:
+        return int(np.ceil(len(self.indexes) / self.batch_size))
+
+    def __getitem__(self, i: int) -> Tuple[NpArray, NpArray]:
+        batch_ids = self.indexes[i * self.batch_size : (i + 1) * self.batch_size]
+        x = self.x_train[batch_ids]
+
+        if self.datagen:
+            for i in range(batch_ids.size):
+                x[i] = self.datagen.random_transform(x[i])
+
+        if isinstance(self.y_train, list):
+            y: List[float] = []
+
+            for y_train_ in self.y_train:
+                y = y_train_[batch_ids]
+        else:
+            y = self.y_train[batch_ids]
+
+        return x, y

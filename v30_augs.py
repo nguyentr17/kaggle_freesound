@@ -251,6 +251,11 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     reg_coeff       = float(params["reg_coeff"])
     residuals       = "" # params["residuals"]
 
+    shift           = float(params["shift"])
+    flip            = bool(params["flip"])
+    erase           = False # bool(params["erase"])
+    alpha           = float(params["alpha"])
+
     if residuals is not "":
         conv_depth_mul = 1
 
@@ -331,12 +336,12 @@ def train_model_with_params(params: Dict[str, str], name:str="nofolds") -> float
     time_stopping = TimedStopping(timeout=15*60*60, verbose=1)
 
     datagen = keras.preprocessing.image.ImageDataGenerator(
-        width_shift_range=0.4,  # randomly shift images horizontally (fraction of total width)
-        horizontal_flip=True,   # randomly flip images
+        width_shift_range=shift, # 0.4,  # randomly shift images horizontally (fraction of total width)
+        horizontal_flip=flip,   # randomly flip images
         preprocessing_function=
-            get_random_eraser(v_l=np.min(x_train), v_h=np.max(x_train)) # random eraser
+            get_random_eraser(v_l=np.min(x_train), v_h=np.max(x_train)) if erase else None # random eraser
     )
-    mixupgen = MixupGenerator(x_train, y_train, alpha=1.0, batch_size=batch_size,
+    mixupgen = MixupGenerator(x_train, y_train, alpha=alpha, batch_size=batch_size,
                               datagen=datagen)
 
     model.fit_generator(mixupgen,
@@ -413,6 +418,11 @@ if __name__ == "__main__":
         dropout_coeff   = float(params["dropout_coeff"])
         reg_coeff       = float(params["reg_coeff"])
         residuals       = params["residuals"]
+
+        shift           = params["shift"]
+        flip            = params["flip"]
+        erase           = params["erase"]
+        alpha           = params["alpha"]
         '''
 
         hyperopt_space = {
@@ -430,10 +440,15 @@ if __name__ == "__main__":
             "dropout_coeff"     : hp.uniform("dropout_coeff", 0.4, 0.6),
             "reg_coeff"         : hp.uniform("reg_coeff", -5, -3),
             # "residuals"         : hp.choice("residuals", ["resnet", "densenet", ""]),
+
+            "shift"             : hp.uniform("shift", 0, 0.5),
+            "flip"              : hp.choice("flip", [True, False]),
+            # "erase"             : hp.choice("erase", [True, False]),
+            "alpha"             : hp.uniform("alpha", 0.001, 0.999),
         }
 
         best = fmin(fn=train_model_with_params, space=hyperopt_space,
-                    algo=tpe.suggest, max_evals=50)
+                    algo=tpe.suggest, max_evals=200)
         print("best params:", best)
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
