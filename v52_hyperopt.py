@@ -5,6 +5,7 @@ from typing import *
 
 import numpy as np, pandas as pd, scipy as sp
 import keras
+from hyperopt import hp, tpe, fmin
 
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split
@@ -17,13 +18,14 @@ NpArray = Any
 
 TOPK = 3
 
-CODE_VERSION    = 0x50
+CODE_VERSION    = 0x52
 DATA_VERSION    = 0x01
 
 PREDICT_ONLY    = False
 ENABLE_KFOLD    = True
+ENABLE_HYPEROPT = False
 TEST_SIZE       = 0.2
-KFOLDS          = 10
+KFOLDS          = 20
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
@@ -31,6 +33,8 @@ SAMPLE_RATE     = 44100
 # Network hyperparameters
 BATCH_SIZE      = 32
 NUM_EPOCHS      = 100
+
+HYPEROPT_EVALS  = 200
 
 
 def find_files(path: str) -> List[str]:
@@ -160,10 +164,15 @@ class Map3Metric(keras.callbacks.Callback):
         self.best_map3 = 0.0
         self.best_epoch = 0
 
+        self.last_best_map3 = 0.0
+        self.last_best_epoch = 0
+        self.max_epochs = 15
+        self.min_threshold = 0.001
+
     def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
         predict = self.model.predict(self.x_val)
         map3 = map3_metric(predict, self.y_val)
-        print("epoch %d MAP@3 %.4f" % (epoch, map3))
+        print("epoch %d MAP@3 %.4f" % (epoch + 1, map3))
 
         if map3 > self.best_map3:
             self.best_map3 = map3
@@ -172,38 +181,60 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.save(get_model_path("%s_val_%.4f" % (self.name, map3)))
             self.model.save(get_best_model_path(self.name))
 
-def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
-                NpArray, model_name: str) -> Any:
-    """ Creates model and trains it. Returns trained model. """
+        # # Optionally do early stopping, basing on MAP@3 metric
+        # if self.best_map3 > self.last_best_map3 + self.min_threshold:
+        #     self.last_best_map3 = map3
+        #     self.last_best_epoch = epoch
+        # elif epoch >= self.last_best_epoch + self.max_epochs:
+        #     self.model.stop_training = True
+        #     print("stopping training because MAP@3 growth has stopped")
+
+def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
+    """ Creates model and trains it. Returns MAP@3 metric. """
+    dropout_coeff   = float(params["dropout_coeff"])
+    reg_coeff       = float(params["reg_coeff"])
+    reg_coeff2      = float(params["reg_coeff2"])
+    conv_depth      = int(params["conv_depth"])
+    num_hidden      = int(params["num_hidden"])
+    conv_width      = int(params["conv_width"])
+    conv_height     = int(params["conv_height"])
+    conv_count      = int(params["conv_count"])
+
+    # TODO: search for the best pooling size
+
+    print("training with params", params)
+
+    reg = keras.regularizers.l2(10 ** reg_coeff)
+    reg2 = keras.regularizers.l2(10 ** reg_coeff2)
+
     x = inp = keras.layers.Input(shape=x_train.shape[1:])
     x = keras.layers.Reshape((x_train.shape[1], x_train.shape[2], 1))(x)
 
-    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
-    x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.Activation("relu")(x)
-    x = keras.layers.MaxPool2D()(x)
-
-    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
-    x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.Activation("relu")(x)
-    x = keras.layers.MaxPool2D()(x)
-
-    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
-    x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.Activation("relu")(x)
-    x = keras.layers.MaxPool2D()(x)
-
-    x = keras.layers.Convolution2D(32, (4,10), padding="same")(x)
-    x = keras.layers.BatchNormalization()(x)
-    x = keras.layers.Activation("relu")(x)
-    x = keras.layers.MaxPool2D()(x)
+    for _ in range(conv_count):
+        x = keras.layers.Convolution2D(conv_depth, (conv_width, conv_height),
+                                       padding="same")(x)
+        x = keras.layers.BatchNormalization()(x)
+        x = keras.layers.Activation("relu")(x)
+        x = keras.layers.MaxPool2D()(x)
 
     x = keras.layers.Flatten()(x)
-    x = keras.layers.Dense(64)(x)
+    x = keras.layers.Dense(num_hidden,
+                           kernel_regularizer=reg,
+                           bias_regularizer=reg,
+                           activity_regularizer=reg,
+                           )(x)
+
+    if dropout_coeff > 0.001:
+        x = keras.layers.Dropout(dropout_coeff)(x)
+
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
 
-    out = keras.layers.Dense(NUM_CLASSES, activation="softmax")(x)
+    out = keras.layers.Dense(NUM_CLASSES,
+                             kernel_regularizer=reg2,
+                             bias_regularizer=reg2,
+                             activity_regularizer=reg2,
+                             activation="softmax")(x)
 
     model = keras.models.Model(inputs=inp, outputs=out)
     model.summary()
@@ -211,7 +242,7 @@ def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
     model.compile(loss="categorical_crossentropy", optimizer="adam",
                   metrics=["accuracy"])
 
-    map3 = Map3Metric(x_val, y_val, model_name)
+    map3 = Map3Metric(x_val, y_val, name)
     reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
                     factor=0.33, patience=7, verbose=1, min_lr=3e-6)
 
@@ -219,8 +250,9 @@ def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
               verbose=1, validation_data=[x_val, y_val],
               callbacks=[map3, reduce_lr])
 
-    print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
-    return model
+    print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3,
+                                                   map3.best_epoch + 1))
+    return map3.best_map3
 
 def merge_predictions(pred: NpArray, mode: str, axis: int) -> NpArray:
     """ Merges predictions for all clips and returns a single prediction. """
@@ -231,7 +263,14 @@ def merge_predictions(pred: NpArray, mode: str, axis: int) -> NpArray:
     elif mode == "max":
         return np.max(pred, axis=axis)
     elif mode == "geom_mean":
-        return sp.stats.gmean(pred, axis=axis)
+        # this code is same as in scipy, but it prevents warning
+        res = 1
+
+        for i in range(pred.shape[axis]):
+            res = res * np.take(pred, i, axis=axis)
+
+        return res ** (1 / pred.shape[axis])
+        # return sp.stats.gmean(pred, axis=axis)
     else:
         assert(False)
 
@@ -289,13 +328,45 @@ if __name__ == "__main__":
     test_files = find_files("../data/audio_test/")
     test_idx = [os.path.basename(f) for f in test_files]
 
-    if not ENABLE_KFOLD:
+    if ENABLE_HYPEROPT:
+        train_idx, val_idx = train_test_split(train_indices, test_size=TEST_SIZE)
+        x_train, y_train, x_val, y_val, x_test, label_binarizer, \
+            clips_per_sample = load_data(train_idx, val_idx)
+
+        '''
+        dropout_coeff   = float(params["dropout_coeff"])
+        reg_coeff       = float(params["reg_coeff"])
+        reg_coeff2      = float(params["reg_coeff2"])
+        conv_depth      = int(params["conv_depth"])
+        num_hidden      = int(params["num_hidden"])
+        conv_width      = int(params["conv_width"])
+        conv_height     = int(params["conv_height"])
+        conv_count      = int(params["conv_count"])
+        '''
+        hyperopt_space = {
+            "dropout_coeff"     : hp.uniform("dropout_coeff", 0, 0.6),
+            "reg_coeff"         : hp.uniform("reg_coeff", -10, -3),
+            "reg_coeff2"        : hp.uniform("reg_coeff2", -10, -3),
+            "conv_depth"        : hp.quniform("conv_depth", 16, 32, 1),
+            "num_hidden"        : hp.quniform("num_hidden", 32, 64, 1),
+            "conv_width"        : hp.quniform("conv_width", 2, 5, 1),
+            "conv_height"       : hp.quniform("conv_height", 6, 12, 1),
+            "conv_count"        : hp.choice("conv_count", [3, 4]),
+        }
+
+        best = fmin(fn=train_model, space=hyperopt_space,
+                    algo=tpe.suggest, max_evals=HYPEROPT_EVALS)
+        print("best params:", best)
+
+        pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
+        pred = encode_predictions(pred)
+    elif not ENABLE_KFOLD:
         train_idx, val_idx = train_test_split(train_indices, test_size=TEST_SIZE)
         x_train, y_train, x_val, y_val, x_test, label_binarizer, \
             clips_per_sample = load_data(train_idx, val_idx)
 
         if not PREDICT_ONLY:
-            train_model(x_train, x_val, y_train, y_val, "nofolds")
+            train_model({})
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
         pred = encode_predictions(pred)
@@ -311,7 +382,17 @@ if __name__ == "__main__":
             name = "fold_%d" % k
 
             if not PREDICT_ONLY:
-                train_model(x_train, x_val, y_train, y_val, name)
+                params = {
+                    'conv_count': 4,
+                    'conv_depth': 29.0,
+                    'conv_height': 9.0,
+                    'conv_width': 4.0,
+                    'dropout_coeff': 0.20074597916041637,
+                    'num_hidden': 56.0,
+                    'reg_coeff': -8.009079918425833,
+                    'reg_coeff2': -6.624530687025591
+                }
+                train_model(params, name=name)
 
             pred[:, k, :] = predict(x_test, label_binarizer, clips_per_sample, name)
 

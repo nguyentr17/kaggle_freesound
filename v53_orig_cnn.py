@@ -17,13 +17,13 @@ NpArray = Any
 
 TOPK = 3
 
-CODE_VERSION    = 0x50
+CODE_VERSION    = 0x53
 DATA_VERSION    = 0x01
 
 PREDICT_ONLY    = False
 ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
-KFOLDS          = 10
+KFOLDS          = 20
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100

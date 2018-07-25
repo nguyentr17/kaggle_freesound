@@ -15,7 +15,6 @@ from data import load_dataset
 
 
 NpArray = Any
-Tensor = Any
 
 TOPK = 3
 
@@ -26,14 +25,14 @@ PREDICT_ONLY    = False
 ENABLE_KFOLD    = True
 ENABLE_HYPEROPT = False
 TEST_SIZE       = 0.2
-KFOLDS          = 10
+KFOLDS          = 20
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
 
 # Network hyperparameters
 BATCH_SIZE      = 32
-NUM_EPOCHS      = 70
+NUM_EPOCHS      = 100
 
 
 def find_files(path: str) -> List[str]:
@@ -180,13 +179,13 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.save(get_model_path("%s_val_%.4f" % (self.name, map3)))
             self.model.save(get_best_model_path(self.name))
 
-        # Optionally do early stopping, basing on MAP@3 metric
-        if self.best_map3 > self.last_best_map3 + self.min_threshold:
-            self.last_best_map3 = map3
-            self.last_best_epoch = epoch
-        elif epoch >= self.last_best_epoch + self.max_epochs:
-            self.model.stop_training = True
-            print("stopping training because MAP@3 growth has stopped")
+        # # Optionally do early stopping, basing on MAP@3 metric
+        # if self.best_map3 > self.last_best_map3 + self.min_threshold:
+        #     self.last_best_map3 = map3
+        #     self.last_best_epoch = epoch
+        # elif epoch >= self.last_best_epoch + self.max_epochs:
+        #     self.model.stop_training = True
+        #     print("stopping training because MAP@3 growth has stopped")
 
 def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
     """ Creates model and trains it. Returns MAP@3 metric. """
