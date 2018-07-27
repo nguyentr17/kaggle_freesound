@@ -9,21 +9,23 @@ from hyperopt import hp, tpe, fmin
 
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
+from sklearn.utils import class_weight
 
 from data import load_dataset
+from data_v1_1 import get_random_eraser, MixupGenerator, AugGenerator
 
 
 NpArray = Any
 
 TOPK = 3
 
-CODE_VERSION    = 0x52
+CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0][1:]
 DATA_VERSION    = 0x01
 
 PREDICT_ONLY    = False
-ENABLE_KFOLD    = True
-ENABLE_HYPEROPT = False
+ENABLE_KFOLD    = False
+ENABLE_HYPEROPT = True
 TEST_SIZE       = 0.2
 KFOLDS          = 20
 
@@ -32,7 +34,7 @@ SAMPLE_RATE     = 44100
 
 # Network hyperparameters
 BATCH_SIZE      = 32
-NUM_EPOCHS      = 100
+NUM_EPOCHS      = 50
 
 HYPEROPT_EVALS  = 10
 
@@ -114,6 +116,10 @@ def load_data(train_idx: NpArray, val_idx: NpArray) -> \
     x_val = (x_val - mean) / std
     x_test = (x_test - mean) / std
 
+    x_train = np.expand_dims(x_train, -1)
+    x_val = np.expand_dims(x_val, -1)
+    x_test = np.expand_dims(x_test, -1)
+
     y_train = label_binarizer.transform(y_train)
     y_val = label_binarizer.transform(y_val)
 
@@ -148,7 +154,7 @@ def map3_metric(predict: NpArray, ground_truth: NpArray) -> float:
 
 def get_model_path(name: str) -> str:
     """ Builds the path of the model file. """
-    return "../models/%02x__%s.hdf5" % (CODE_VERSION, name)
+    return "../models/%s__%s.hdf5" % (CODE_VERSION, name)
 
 def get_best_model_path(name: str) -> str:
     """ Returns the path of the best model. """
@@ -181,60 +187,53 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.save(get_model_path("%s_val_%.4f" % (self.name, map3)))
             self.model.save(get_best_model_path(self.name))
 
-        # # Optionally do early stopping, basing on MAP@3 metric
-        # if self.best_map3 > self.last_best_map3 + self.min_threshold:
-        #     self.last_best_map3 = map3
-        #     self.last_best_epoch = epoch
-        # elif epoch >= self.last_best_epoch + self.max_epochs:
-        #     self.model.stop_training = True
-        #     print("stopping training because MAP@3 growth has stopped")
+        # Optionally do early stopping, basing on MAP@3 metric
+        if self.best_map3 > self.last_best_map3 + self.min_threshold:
+            self.last_best_map3 = map3
+            self.last_best_epoch = epoch
+        elif epoch >= self.last_best_epoch + self.max_epochs:
+            self.model.stop_training = True
+            print("stopping training because MAP@3 growth has stopped")
 
 def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
     """ Creates model and trains it. Returns MAP@3 metric. """
-    dropout_coeff   = float(params["dropout_coeff"])
-    reg_coeff       = float(params["reg_coeff"])
-    reg_coeff2      = float(params["reg_coeff2"])
-    conv_depth      = int(params["conv_depth"])
-    num_hidden      = int(params["num_hidden"])
-    conv_width      = int(params["conv_width"])
-    conv_height     = int(params["conv_height"])
-    conv_count      = int(params["conv_count"])
-
-    # TODO: search for the best pooling size
-
     print("training with params", params)
 
-    reg = keras.regularizers.l2(10 ** reg_coeff)
-    reg2 = keras.regularizers.l2(10 ** reg_coeff2)
+    shift           = float(params["shift"])
+    flip            = bool(params["flip"])
+    erase           = False # bool(params["erase"])
+    alpha           = float(params["alpha"])
+    mixup           = bool(params["mixup"])
 
     x = inp = keras.layers.Input(shape=x_train.shape[1:])
     x = keras.layers.Reshape((x_train.shape[1], x_train.shape[2], 1))(x)
 
-    for _ in range(conv_count):
-        x = keras.layers.Convolution2D(conv_depth, (conv_width, conv_height),
-                                       padding="same")(x)
-        x = keras.layers.BatchNormalization()(x)
-        x = keras.layers.Activation("relu")(x)
-        x = keras.layers.MaxPool2D()(x)
+    x = keras.layers.Convolution2D(32, (4, 10), padding="same")(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Activation("relu")(x)
+    x = keras.layers.MaxPool2D()(x)
 
+    x = keras.layers.Convolution2D(32, (4, 10), padding="same")(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Activation("relu")(x)
+    x = keras.layers.MaxPool2D()(x)
+
+    x = keras.layers.Convolution2D(32, (4, 10), padding="same")(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Activation("relu")(x)
+    x = keras.layers.MaxPool2D()(x)
+
+    x = keras.layers.Convolution2D(32, (4, 10), padding="same")(x)
+    x = keras.layers.BatchNormalization()(x)
+    x = keras.layers.Activation("relu")(x)
+    x = keras.layers.MaxPool2D()(x)
     x = keras.layers.Flatten()(x)
-    x = keras.layers.Dense(num_hidden,
-                           kernel_regularizer=reg,
-                           bias_regularizer=reg,
-                           activity_regularizer=reg,
-                           )(x)
 
-    if dropout_coeff > 0.001:
-        x = keras.layers.Dropout(dropout_coeff)(x)
-
+    x = keras.layers.Dense(64)(x)
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
 
-    out = keras.layers.Dense(NUM_CLASSES,
-                             kernel_regularizer=reg2,
-                             bias_regularizer=reg2,
-                             activity_regularizer=reg2,
-                             activation="softmax")(x)
+    out = keras.layers.Dense(NUM_CLASSES, activation="softmax")(x)
 
     model = keras.models.Model(inputs=inp, outputs=out)
     model.summary()
@@ -246,12 +245,32 @@ def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
     reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
                     factor=0.33, patience=7, verbose=1, min_lr=3e-6)
 
-    model.fit(x_train, y_train, batch_size=BATCH_SIZE, epochs=NUM_EPOCHS,
-              verbose=1, validation_data=[x_val, y_val],
-              callbacks=[map3, reduce_lr])
+#     model.fit(x_train, y_train, batch_size=BATCH_SIZE, epochs=NUM_EPOCHS,
+#               verbose=1, validation_data=[x_val, y_val],
+#               class_weight=class_weight,
+#               callbacks=[map3, reduce_lr])
 
-    print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3,
-                                                   map3.best_epoch + 1))
+    datagen = keras.preprocessing.image.ImageDataGenerator(
+        width_shift_range=shift, # 0.4,  # randomly shift images horizontally (fraction of total width)
+        horizontal_flip=flip,   # randomly flip images
+        preprocessing_function=
+            get_random_eraser(v_l=np.min(x_train), v_h=np.max(x_train)) if erase else None # random eraser
+    )
+
+    if mixup:
+        mixupgen = MixupGenerator(x_train, y_train, alpha=alpha,
+                                  batch_size=BATCH_SIZE, datagen=datagen)
+    else:
+        mixupgen = AugGenerator(x_train, y_train, alpha=alpha,
+                                batch_size=BATCH_SIZE, datagen=datagen)
+
+    model.fit_generator(mixupgen,
+                        epochs=NUM_EPOCHS, verbose=1,
+                        validation_data=[x_val, y_val],
+                        use_multiprocessing=True, workers=12,
+                        callbacks=[map3, reduce_lr])
+
+    print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
     return map3.best_map3
 
 def merge_predictions(pred: NpArray, mode: str, axis: int) -> NpArray:
@@ -263,14 +282,7 @@ def merge_predictions(pred: NpArray, mode: str, axis: int) -> NpArray:
     elif mode == "max":
         return np.max(pred, axis=axis)
     elif mode == "geom_mean":
-        # this code is same as in scipy, but it prevents warning
-        res = 1
-
-        for i in range(pred.shape[axis]):
-            res = res * np.take(pred, i, axis=axis)
-
-        return res ** (1 / pred.shape[axis])
-        # return sp.stats.gmean(pred, axis=axis)
+        return sp.stats.gmean(pred, axis=axis)
     else:
         assert(False)
 
@@ -328,53 +340,54 @@ if __name__ == "__main__":
     test_files = find_files("../data/audio_test/")
     test_idx = [os.path.basename(f) for f in test_files]
 
+    train_labels = stratify=train_df["label"]
+    class_weight = class_weight.compute_class_weight('balanced',
+                       np.unique(train_labels), train_labels)
+    class_weight = {i: w for i, w in enumerate(class_weight)}
+    print(class_weight)
+
     if ENABLE_HYPEROPT:
-        train_idx, val_idx = train_test_split(train_indices, test_size=TEST_SIZE)
+        train_idx, val_idx = train_test_split(train_indices,
+                                              stratify=train_labels,
+                                              random_state=0,
+                                              test_size=TEST_SIZE)
         x_train, y_train, x_val, y_val, x_test, label_binarizer, \
             clips_per_sample = load_data(train_idx, val_idx)
 
-        '''
-        dropout_coeff   = float(params["dropout_coeff"])
-        reg_coeff       = float(params["reg_coeff"])
-        reg_coeff2      = float(params["reg_coeff2"])
-        conv_depth      = int(params["conv_depth"])
-        num_hidden      = int(params["num_hidden"])
-        conv_width      = int(params["conv_width"])
-        conv_height     = int(params["conv_height"])
-        conv_count      = int(params["conv_count"])
-        '''
         hyperopt_space = {
-            "dropout_coeff"     : hp.uniform("dropout_coeff", 0, 0.6),
-            "reg_coeff"         : hp.uniform("reg_coeff", -10, -3),
-            "reg_coeff2"        : hp.uniform("reg_coeff2", -10, -3),
-            "conv_depth"        : hp.quniform("conv_depth", 16, 32, 1),
-            "num_hidden"        : hp.quniform("num_hidden", 32, 64, 1),
-            "conv_width"        : hp.quniform("conv_width", 2, 5, 1),
-            "conv_height"       : hp.quniform("conv_height", 6, 12, 1),
-            "conv_count"        : hp.choice("conv_count", [3, 4]),
+            "shift"             : hp.uniform("shift", 0, 0.5),
+            "flip"              : hp.choice("flip", [True, False]),
+            # "erase"             : hp.choice("erase", [True, False]),
+            "alpha"             : hp.uniform("alpha", 0.001, 0.999),
+            "mixup"             : hp.choice("mixup", [True, False]),
         }
 
         best = fmin(fn=train_model, space=hyperopt_space,
-                    algo=tpe.suggest, max_evals=HYPEROPT_EVALS)
+                    algo=tpe.suggest, max_evals=20)
         print("best params:", best)
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
         pred = encode_predictions(pred)
     elif not ENABLE_KFOLD:
-        train_idx, val_idx = train_test_split(train_indices, test_size=TEST_SIZE)
+        train_idx, val_idx = train_test_split(train_indices,
+                                              stratify=train_labels,
+                                              random_state=0,
+                                              test_size=TEST_SIZE)
         x_train, y_train, x_val, y_val, x_test, label_binarizer, \
             clips_per_sample = load_data(train_idx, val_idx)
 
         if not PREDICT_ONLY:
-            train_model({})
+            params: Dict[str, Any] = {
+            }
+            train_model(params)
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
         pred = encode_predictions(pred)
     else:
-        kf = KFold(n_splits=KFOLDS, shuffle=False)
+        kf = StratifiedKFold(n_splits=KFOLDS, shuffle=False)
         pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
 
-        for k, (train_idx, val_idx) in enumerate(kf.split(train_indices)):
+        for k, (train_idx, val_idx) in enumerate(kf.split(train_indices, train_labels)):
             print("fold %d ==============================================" % k)
 
             x_train, y_train, x_val, y_val, x_test, label_binarizer, \
@@ -383,14 +396,6 @@ if __name__ == "__main__":
 
             if not PREDICT_ONLY:
                 params = {
-                    'conv_count': 4,
-                    'conv_depth': 29.0,
-                    'conv_height': 9.0,
-                    'conv_width': 4.0,
-                    'dropout_coeff': 0.20074597916041637,
-                    'num_hidden': 56.0,
-                    'reg_coeff': -8.009079918425833,
-                    'reg_coeff2': -6.624530687025591
                 }
                 train_model(params, name=name)
 
@@ -403,5 +408,5 @@ if __name__ == "__main__":
         print("predictions after encoding", pred.shape)
 
     sub = pd.DataFrame({"fname": test_idx, "label": pred})
-    sub.to_csv("../submissions/%02x.csv" % CODE_VERSION, index=False, header=True)
+    sub.to_csv("../submissions/%s.csv" % CODE_VERSION, index=False, header=True)
     print("submission has been generated")
