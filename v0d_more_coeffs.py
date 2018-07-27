@@ -24,14 +24,14 @@ CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0]
 PREDICT_ONLY    = False
 ENABLE_KFOLD    = False
 TEST_SIZE       = 0.2
-KFOLDS          = 10
+KFOLDS          = 20
 USE_HYPEROPT    = True
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
 
 # Network hyperparameters
-NUM_EPOCHS      = 50
+NUM_EPOCHS      = 70
 
 
 def find_files(path: str) -> List[str]:
@@ -185,8 +185,8 @@ class Map3Metric(keras.callbacks.Callback):
 
         self.last_best_map3 = 0.0
         self.last_best_epoch = 0
-        self.max_epochs = 5
-        self.min_threshold = 0.01
+        self.max_epochs = 15
+        self.min_threshold = 0.001
 
     def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
         predict = self.model.predict(self.x_val)

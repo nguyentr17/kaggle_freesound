@@ -8,7 +8,8 @@ import keras
 
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
+from sklearn.utils import class_weight
 
 from data import load_dataset
 
@@ -17,7 +18,7 @@ NpArray = Any
 
 TOPK = 3
 
-CODE_VERSION    = 0x53
+CODE_VERSION    = 0x55
 DATA_VERSION    = 0x01
 
 PREDICT_ONLY    = False
@@ -217,6 +218,7 @@ def train_model(x_train: NpArray, x_val: NpArray, y_train: NpArray, y_val:
 
     model.fit(x_train, y_train, batch_size=BATCH_SIZE, epochs=NUM_EPOCHS,
               verbose=1, validation_data=[x_val, y_val],
+              class_weight=class_weight,
               callbacks=[map3, reduce_lr])
 
     print("best MAP@3 value: %.04f at epoch %d" % (map3.best_map3, map3.best_epoch))
@@ -289,8 +291,17 @@ if __name__ == "__main__":
     test_files = find_files("../data/audio_test/")
     test_idx = [os.path.basename(f) for f in test_files]
 
+    train_labels = stratify=train_df["label"]
+    class_weight = class_weight.compute_class_weight('balanced',
+                       np.unique(train_labels), train_labels)
+    class_weight = {i: w for i, w in enumerate(class_weight)}
+    print(class_weight)
+
     if not ENABLE_KFOLD:
-        train_idx, val_idx = train_test_split(train_indices, test_size=TEST_SIZE)
+        train_idx, val_idx = train_test_split(train_indices,
+                                              stratify=train_labels,
+                                              random_state=0,
+                                              test_size=TEST_SIZE)
         x_train, y_train, x_val, y_val, x_test, label_binarizer, \
             clips_per_sample = load_data(train_idx, val_idx)
 
@@ -300,10 +311,11 @@ if __name__ == "__main__":
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
         pred = encode_predictions(pred)
     else:
-        kf = KFold(n_splits=KFOLDS, shuffle=False)
+        kf = StratifiedKFold(n_splits=KFOLDS, shuffle=False)
         pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
 
-        for k, (train_idx, val_idx) in enumerate(kf.split(train_indices)):
+        # for k, (train_idx, val_idx) in enumerate(kf.split(train_indices)):
+        for k, (train_idx, val_idx) in enumerate(kf.split(train_indices, train_labels)):
             print("fold %d ==============================================" % k)
 
             x_train, y_train, x_val, y_val, x_test, label_binarizer, \
