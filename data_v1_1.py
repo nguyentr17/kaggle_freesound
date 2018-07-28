@@ -225,7 +225,8 @@ class MixupGenerator(keras.utils.Sequence):
     def __getitem__(self, i: int) -> np.array:
         batch_ids = self.indexes[i * self.batch_size * 2 :
                                  (i + 1) * self.batch_size * 2]
-        _, h, w = self.X_train.shape
+        h, w = self.X_train.shape[1], self.X_train.shape[2]
+
         l = np.random.beta(self.alpha, self.alpha, self.batch_size)
         X_l = l.reshape(self.batch_size, 1, 1, 1)
         y_l = l.reshape(self.batch_size, 1)

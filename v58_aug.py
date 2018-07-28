@@ -36,7 +36,7 @@ SAMPLE_RATE     = 44100
 BATCH_SIZE      = 32
 NUM_EPOCHS      = 50
 
-HYPEROPT_EVALS  = 10
+HYPEROPT_EVALS  = 200
 
 
 def find_files(path: str) -> List[str]:
