@@ -354,7 +354,6 @@ if __name__ == "__main__":
         print("best params:", best)
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
-        pred = encode_predictions(pred)
     elif not ENABLE_KFOLD:
         train_idx, val_idx = train_test_split(train_indices, test_size=TEST_SIZE)
         x_train, y_train, x_val, y_val, x_test, label_binarizer, \
@@ -364,7 +363,6 @@ if __name__ == "__main__":
             train_model({})
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
-        pred = encode_predictions(pred)
     else:
         kf = KFold(n_splits=KFOLDS, shuffle=False)
         pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
@@ -389,9 +387,6 @@ if __name__ == "__main__":
         print("before final merge: pred.shape", pred.shape)
         pred = merge_predictions(pred, "geom_mean", axis=1)
         print("predictions after final merge", pred.shape)
-        pred = encode_predictions(pred)
-        print("predictions after encoding", pred.shape)
 
-    sub = pd.DataFrame({"fname": test_idx, "label": pred})
-    sub.to_csv("../submissions/%02x.csv" % CODE_VERSION, index=False, header=True)
-    print("submission has been generated")
+    np.savez("../predictions/%s.npz" % CODE_VERSION, predict=pred)
+    print("matrix of predictions has been saved")

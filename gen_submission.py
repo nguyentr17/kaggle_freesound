@@ -51,8 +51,8 @@ def encode_predictions(y_test: NpArray) -> NpArray:
     return joined_pred
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print("usage: %s <dest> <file1.csv> <file2.csv> ..." % sys.argv[0])
+    if len(sys.argv) < 3 or not sys.argv[1].endswith(".csv"):
+        print("usage: %s <dest.csv> <file1.npz> <file2.npz> ..." % sys.argv[0])
         sys.exit()
 
     train_df = pd.read_csv("../data/train.csv", index_col="fname")
