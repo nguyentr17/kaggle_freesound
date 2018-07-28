@@ -10,7 +10,7 @@ import keras
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split, KFold
 
-from data_v1_1 import load_dataset, DATA_VERSION
+from data import load_dataset, DATA_VERSION
 from data_v1_1 import get_random_eraser, MixupGenerator, AugGenerator
 
 
@@ -27,7 +27,7 @@ KFOLDS          = 10
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
-MAX_MFCC        = 20
+# MAX_MFCC        = 20
 
 # Network hyperparameters
 NUM_EPOCHS      = 100
@@ -119,9 +119,9 @@ def load_data(train_idx: NpArray, val_idx: NpArray) -> \
     x_val = np.expand_dims(x_val, -1)
     x_test = np.expand_dims(x_test, -1)
 
-    x_train = x_train[:, :MAX_MFCC, ...]
-    x_val = x_val[:, :MAX_MFCC, ...]
-    x_test = x_test[:, :MAX_MFCC, ...]
+    # x_train = x_train[:, :MAX_MFCC, ...]
+    # x_val = x_val[:, :MAX_MFCC, ...]
+    # x_test = x_test[:, :MAX_MFCC, ...]
 
     print("x_train.shape", x_train.shape, "y_train.shape", y_train.shape)
     print("x_val.shape", x_val.shape, "y_val.shape", y_val.shape)
