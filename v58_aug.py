@@ -201,7 +201,7 @@ def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
 
     shift           = float(params["shift"])
     flip            = bool(params["flip"])
-    erase           = False # bool(params["erase"])
+    erase           = bool(params["erase"])
     alpha           = float(params["alpha"])
     mixup           = bool(params["mixup"])
 
@@ -245,16 +245,12 @@ def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
     reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
                     factor=0.33, patience=7, verbose=1, min_lr=3e-6)
 
-#     model.fit(x_train, y_train, batch_size=BATCH_SIZE, epochs=NUM_EPOCHS,
-#               verbose=1, validation_data=[x_val, y_val],
-#               class_weight=class_weight,
-#               callbacks=[map3, reduce_lr])
-
     datagen = keras.preprocessing.image.ImageDataGenerator(
         width_shift_range=shift, # 0.4,  # randomly shift images horizontally (fraction of total width)
         horizontal_flip=flip,   # randomly flip images
         preprocessing_function=
-            get_random_eraser(v_l=np.min(x_train), v_h=np.max(x_train)) if erase else None # random eraser
+            # random eraser
+            get_random_eraser(v_l=np.min(x_train), v_h=np.max(x_train)) if erase else None
     )
 
     if mixup:
@@ -357,13 +353,13 @@ if __name__ == "__main__":
         hyperopt_space = {
             "shift"             : hp.uniform("shift", 0, 0.5),
             "flip"              : hp.choice("flip", [True, False]),
-            # "erase"             : hp.choice("erase", [True, False]),
+            "erase"             : hp.choice("erase", [True, False]),
             "alpha"             : hp.uniform("alpha", 0.001, 0.999),
             "mixup"             : hp.choice("mixup", [True, False]),
         }
 
         best = fmin(fn=train_model, space=hyperopt_space,
-                    algo=tpe.suggest, max_evals=20)
+                    algo=tpe.suggest, max_evals=HYPEROPT_EVALS)
         print("best params:", best)
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")

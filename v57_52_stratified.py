@@ -365,7 +365,7 @@ if __name__ == "__main__":
         }
 
         best = fmin(fn=train_model, space=hyperopt_space,
-                    algo=tpe.suggest, max_evals=20)
+                    algo=tpe.suggest, max_evals=HYPEROPT_EVALS)
         print("best params:", best)
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
