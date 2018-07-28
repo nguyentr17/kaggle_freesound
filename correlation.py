@@ -8,10 +8,10 @@ if __name__ == "__main__":
         sys.exit()
 
     print("reading", sys.argv[1])
-    pred1 = np.load(sys.argv[1])["predict"]
+    pred1 = np.load(sys.argv[1])["predict"].flatten()
 
     print("reading", sys.argv[2])
-    pred2 = np.load(sys.argv[2])["predict"]
+    pred2 = np.load(sys.argv[2])["predict"].flatten()
 
     print("RMS of difference:", np.sqrt(np.mean((pred1 - pred2) ** 2)))
     print("standard deviation:", np.std(pred1 - pred2))

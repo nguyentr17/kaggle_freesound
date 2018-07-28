@@ -20,7 +20,7 @@ TOPK = 3
 CODE_VERSION    = 0x53
 DATA_VERSION    = 0x01
 
-PREDICT_ONLY    = False
+PREDICT_ONLY    = True
 ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
 KFOLDS          = 20
@@ -318,5 +318,5 @@ if __name__ == "__main__":
         pred = merge_predictions(pred, "geom_mean", axis=1)
         print("predictions after final merge", pred.shape)
 
-    np.savez("../predictions/%s.npz" % CODE_VERSION, predict=pred)
+    np.savez("../predictions/%02x.npz" % CODE_VERSION, predict=pred)
     print("matrix of predictions has been saved")
