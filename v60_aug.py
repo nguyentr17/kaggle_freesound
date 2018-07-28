@@ -24,8 +24,8 @@ CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0][1:]
 DATA_VERSION    = 0x01
 
 PREDICT_ONLY    = False
-ENABLE_KFOLD    = False
-ENABLE_HYPEROPT = True
+ENABLE_KFOLD    = True
+ENABLE_HYPEROPT = False
 TEST_SIZE       = 0.2
 KFOLDS          = 20
 
@@ -34,7 +34,7 @@ SAMPLE_RATE     = 44100
 
 # Network hyperparameters
 BATCH_SIZE      = 32
-NUM_EPOCHS      = 75
+NUM_EPOCHS      = 120
 
 HYPEROPT_EVALS  = 16
 
@@ -429,6 +429,12 @@ if __name__ == "__main__":
 
             if not PREDICT_ONLY:
                 params = {
+                    'alpha': 0.333893523477696,
+                    'cnn_dropout': 0,
+                    'dropout_coeff': 0.46145339005085273,
+                    'num_hidden': 123.0,
+                    'reg_coeff': -4.398326213193919,
+                    'shift': 0.031461970965138475
                 }
                 train_model(params, name=name)
 
