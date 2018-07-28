@@ -8,7 +8,8 @@ import keras
 
 from sklearn.preprocessing import LabelBinarizer
 from sklearn.model_selection import train_test_split
-from sklearn.model_selection import KFold
+from sklearn.model_selection import StratifiedKFold
+from sklearn.utils import class_weight
 
 from data import load_dataset
 
@@ -17,20 +18,11 @@ NpArray = Any
 
 TOPK = 3
 
-CODE_VERSION    = 0x54
+CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0][1:]
 DATA_VERSION    = 0x01
 
-PREDICT_ONLY    = False
-ENABLE_KFOLD    = True
-TEST_SIZE       = 0.2
 KFOLDS          = 20
-
 NUM_CLASSES     = 41
-SAMPLE_RATE     = 44100
-
-# Network hyperparameters
-BATCH_SIZE      = 32
-NUM_EPOCHS      = 100
 
 
 def find_files(path: str) -> List[str]:
@@ -119,6 +111,7 @@ def load_data(train_idx: NpArray, val_idx: NpArray) -> \
     return x_train, y_train, x_val, y_val, x_test, label_binarizer, clips_per_sample
 
 def get_best_model_path(fold: int) -> str:
+    """ Looks for all files *__file_NUMBER_ and chooses one with best acc. """
     def parse_accuracy(filename: str) -> float:
         m = re.search(r"__fold_\d+_val_([01]\.\d+)", filename)
         assert(m)
@@ -198,12 +191,19 @@ if __name__ == "__main__":
     test_files = find_files("../data/audio_test/")
     test_idx = [os.path.basename(f) for f in test_files]
 
-    kf = KFold(n_splits=KFOLDS, shuffle=False)
-    pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
+    train_labels = stratify=train_df["label"]
+    class_weight = class_weight.compute_class_weight('balanced',
+                       np.unique(train_labels), train_labels)
+    class_weight = {i: w for i, w in enumerate(class_weight)}
+    print(class_weight)
 
-    for k, (train_idx, val_idx) in enumerate(kf.split(train_indices)):
+    pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
+    kf = StratifiedKFold(n_splits=KFOLDS, shuffle=False)
+
+    for k, (train_idx, val_idx) in enumerate(kf.split(train_indices, train_labels)):
         print("fold %d ==============================================" % k)
 
+        # we only need x_test here
         x_train, y_train, x_val, y_val, x_test, label_binarizer, \
             clips_per_sample = load_data(train_idx, val_idx)
 
@@ -216,5 +216,5 @@ if __name__ == "__main__":
     print("predictions after encoding", pred.shape)
 
     sub = pd.DataFrame({"fname": test_idx, "label": pred})
-    sub.to_csv("../submissions/%02x.csv" % CODE_VERSION, index=False, header=True)
+    sub.to_csv("../submissions/%s.csv" % CODE_VERSION, index=False, header=True)
     print("submission has been generated")
