@@ -8,7 +8,7 @@ import numpy as np, pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.optim.lr_scheduler import ExponentialLR
+from torch.optim.lr_scheduler import MultiStepLR
 import torch.backends.cudnn as cudnn
 
 import torchvision.transforms as transforms
@@ -40,7 +40,7 @@ opt = edict()
 opt.MODEL = edict()
 opt.MODEL.ARCH = 'resnet50'
 opt.MODEL.PRETRAINED = True
-opt.MODEL.INPUT_SIZE = 240
+opt.MODEL.INPUT_SIZE = 224
 
 opt.EXPERIMENT = edict()
 opt.EXPERIMENT.CODENAME = '1'
@@ -58,12 +58,13 @@ opt.TRAIN.PRINT_FREQ = 20
 opt.TRAIN.SEED = None
 opt.TRAIN.LEARNING_RATE = 1e-4
 opt.TRAIN.LR_GAMMA = 0.5
-opt.TRAIN.EPOCHS = 3
+opt.TRAIN.LR_MILESTONES = [10, 20, 30, 40]
+opt.TRAIN.EPOCHS = 100
 opt.TRAIN.SAVE_FREQ = 1
 opt.TRAIN.RESUME = None
 
-opt.NUM_FEATURES = 8
-opt.VALIDATION_SIZE = 0.1
+opt.NUM_CLASSES = 41
+
 
 if opt.TRAIN.SEED is None:
     opt.TRAIN.SEED = int(time.time())
@@ -71,12 +72,12 @@ if opt.TRAIN.SEED is None:
 
 def save_checkpoint(state: Any, filename: str = 'checkpoint.pk') -> None:
     torch.save(state, osp.join(opt.EXPERIMENT.DIR, filename))
-    logger.info('A snapshot was saved to {}.'.format(filename))
+    logger.info('a snapshot was saved to {}.'.format(filename))
 
 def train(train_loader: Any, model: Any, criterion: Any, optimizer: Any,
-          epoch: int, relu: Any, last_fc: Any, train_losses: List[float],
+          epoch: int, train_losses: List[float],
           train_metrics: List[float]) -> None:
-    logger.info('Epoch {}'.format(epoch))
+    logger.info('epoch {}'.format(epoch))
     batch_time = AverageMeter()
     data_time = AverageMeter()
     losses = AverageMeter()
@@ -95,13 +96,13 @@ def train(train_loader: Any, model: Any, criterion: Any, optimizer: Any,
         # compute output
         output = model(input)
 
-        output = relu(output)
-        output = last_fc(output)
-        output = relu(output)
+        # output = relu(output)
+#         output = last_fc(output)
+#         output = relu(output)
 
         loss = criterion(output, target)
 
-        # measure RMSE and record loss
+        # measure MAP@3 and record loss
         map3 = map3_metric(output.data, target)
         losses.update(loss.data.item(), input.size(0))
         metrics.update(map3, input.size(0))
@@ -120,7 +121,7 @@ def train(train_loader: Any, model: Any, criterion: Any, optimizer: Any,
                         'time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                         'data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                         'loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                        'RMSE {metrics.val:.4f} ({metrics.avg:.4f})'.format(
+                        'MAP@3 {metrics.val:.4f} ({metrics.avg:.4f})'.format(
                         epoch, i, len(train_loader), batch_time=batch_time,
                         data_time=data_time, loss=losses, metrics=metrics))
 
@@ -128,8 +129,7 @@ def train(train_loader: Any, model: Any, criterion: Any, optimizer: Any,
     train_metrics.append(metrics.avg)
 
 def validate(val_loader: Any, model: Any, criterion: Any,
-             relu: Any, last_fc: Any, test_losses: List[float],
-             test_map3: List[float]) -> float:
+             test_losses: List[float], test_map3: List[float]) -> float:
     batch_time = AverageMeter()
     losses = AverageMeter()
     metrics = AverageMeter()
@@ -145,13 +145,13 @@ def validate(val_loader: Any, model: Any, criterion: Any,
             # compute output
             output = model(input)
 
-            output = relu(output)
-            output = last_fc(output)
-            output = relu(output)
+            # output = relu(output)
+#             output = last_fc(output)
+#             output = relu(output)
 
             loss = criterion(output, target)
 
-            # measure RMSE and record loss
+            # measure MAP@3 and record loss
             map3 = map3_metric(output.data, target)
             losses.update(loss.data.item(), input.size(0))
             metrics.update(map3, input.size(0))
@@ -164,7 +164,7 @@ def validate(val_loader: Any, model: Any, criterion: Any,
             logger.info('test: [{0}/{1}]\t'
                         'time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                         'loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                        'RMSE {metrics.val:.4f} ({metrics.avg:.4f})'.format(
+                        'MAP@3 {metrics.val:.4f} ({metrics.avg:.4f})'.format(
                         i, len(val_loader), batch_time=batch_time, loss=losses,
                         metrics=metrics))
 
@@ -179,15 +179,11 @@ def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
                    val_scores: Any, fold: int) -> None:
     logger.info('searching images')
 
-    train_dataset = MixupGenerator(train_images, train_scores,
-                                   transform=transform_train)
-    logger.info('loading train dataset: %d items' % len(train_dataset))
+    train_dataset = MixupGenerator(train_images, train_scores)
+    val_dataset = MixupGenerator(val_images, val_scores)
 
-    val_dataset = list(zip(val_images, val_scores))
-    logger.info('loading val dataset: %d items' % len(val_dataset))
-
-    logger.info('{} images are used to train'.format(len(train_dataset)))
-    logger.info('{} images are used to val'.format(len(val_dataset)))
+    logger.info('{} batches in train dataset'.format(len(train_dataset)))
+    logger.info('{} batches in validation dataset'.format(len(val_dataset)))
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=opt.TRAIN.BATCH_SIZE, shuffle=opt.TRAIN.SHUFFLE, num_workers=opt.TRAIN.WORKERS)
@@ -205,7 +201,7 @@ def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
     if opt.MODEL.ARCH.startswith('resnet'):
         assert(opt.MODEL.INPUT_SIZE % 32 == 0)
         model.avgpool = nn.AvgPool2d(opt.MODEL.INPUT_SIZE // 32, stride=1)
-        model.fc = nn.Linear(model.fc.in_features, opt.NUM_FEATURES)
+        model.fc = nn.Linear(model.fc.in_features, opt.NUM_CLASSES)
         model = torch.nn.DataParallel(model).cuda()
     elif opt.MODEL.ARCH.startswith('se'):
         assert(opt.MODEL.INPUT_SIZE % 32 == 0)
@@ -221,24 +217,24 @@ def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
         raise NotImplementedError
 
     optimizer = optim.Adam(model.module.parameters(), opt.TRAIN.LEARNING_RATE)
-    lr_scheduler = ExponentialLR(optimizer, gamma=opt.TRAIN.LR_GAMMA)
+    lr_scheduler = MultiStepLR(optimizer, opt.TRAIN.LR_MILESTONES, gamma=opt.TRAIN.LR_GAMMA, last_epoch=-1)
 
     if opt.TRAIN.RESUME is None:
         last_epoch = 0
-        logger.info("Training will start from Epoch {}".format(last_epoch+1))
+        logger.info("training will start from Epoch {}".format(last_epoch+1))
     else:
         last_checkpoint = torch.load(opt.TRAIN.RESUME)
         assert(last_checkpoint['arch']==opt.MODEL.ARCH)
         model.module.load_state_dict(last_checkpoint['state_dict'])
         optimizer.load_state_dict(last_checkpoint['optimizer'])
-        logger.info("Checkpoint '{}' was loaded.".format(opt.TRAIN.RESUME))
+        logger.info("checkpoint '{}' was loaded.".format(opt.TRAIN.RESUME))
 
         last_epoch = last_checkpoint['epoch']
-        logger.info("Training will be resumed from Epoch {}".format(last_checkpoint['epoch']))
+        logger.info("training will be resumed from epoch {}".format(last_checkpoint['epoch']))
 
-    criterion = nn.MSELoss()
-    last_fc = nn.Linear(in_features=opt.NUM_FEATURES, out_features=1).cuda()
-    relu = nn.ReLU(inplace=True).cuda()
+    criterion = nn.CrossEntropyLoss()
+#     last_fc = nn.Linear(in_features=opt.NUM_FEATURES, out_features=1).cuda()
+#     relu = nn.ReLU(inplace=True).cuda()
 
     best_map3 = 0.0
     best_epoch = 0
@@ -248,15 +244,15 @@ def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
     test_losses: List[float] = []
     test_metrics: List[float] = []
 
-    for epoch in range(last_epoch+1, opt.TRAIN.EPOCHS+1):
+    for epoch in range(last_epoch + 1, opt.TRAIN.EPOCHS + 1):
         logger.info('-'*50)
         lr_scheduler.step(epoch)
         logger.info('lr: {}'.format(lr_scheduler.get_lr()))
 
         train(train_loader, model, criterion, optimizer, epoch,
-              relu, last_fc, train_losses, train_metrics)
+              train_losses, train_metrics)
         map3 = validate(test_loader, model, criterion,
-                       relu, last_fc, test_losses, test_metrics)
+                       test_losses, test_metrics)
         is_best = map3 > best_map3
         if is_best:
             best_epoch = epoch
@@ -300,7 +296,7 @@ def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
     # plt.ylim(ymin=0, ymax=5)
     plt.grid(linestyle=':')
     plt.xlabel('epoch')
-    plt.ylabel('MSE')
+    plt.ylabel('MAP@3')
     plt.title('Loss over epoch')
     plt.savefig(osp.join(opt.EXPERIMENT.DIR, 'loss_curves_%d.png' % fold))
 
@@ -335,24 +331,13 @@ if __name__ == "__main__":
     msg = 'Use time as random seed: {}'.format(opt.TRAIN.SEED)
     logger.info(msg)
 
-    # data-loader of training set
-    transform_train = transforms.Compose([
-        transforms.Resize((opt.MODEL.INPUT_SIZE)), #Smaller edge
-        transforms.RandomCrop(opt.MODEL.INPUT_SIZE),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize(mean = [0.485, 0.456, 0.406],
-                              std = [0.229, 0.224, 0.225]),
-    ])
-
-    # data-loader of testing set
-    transform_val = transforms.Compose([
-        transforms.Resize((opt.MODEL.INPUT_SIZE)),
-        transforms.CenterCrop(opt.MODEL.INPUT_SIZE),
-        transforms.ToTensor(),
-        transforms.Normalize(mean = [0.485, 0.456, 0.406],
-                              std = [0.229, 0.224, 0.225]),
-    ])
+    # transformation of data
+    # transform = transforms.Compose([
+    #     transforms.Resize((opt.MODEL.INPUT_SIZE)), # smaller edge
+    #     transforms.ToTensor(),
+    #     transforms.Normalize(mean = [0.485, 0.456, 0.406],
+    #                           std = [0.229, 0.224, 0.225]),
+    # ])
 
     train_df = pd.read_csv("../data/train.csv", index_col="fname")
     train_indices = range(train_df.shape[0])

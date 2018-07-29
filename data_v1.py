@@ -1,4 +1,5 @@
 #!/usr/bin/python3.6
+""" Original implementation of data loader. Returns 20 MFCC components. """
 
 import glob, multiprocessing, os, sys
 from typing import *

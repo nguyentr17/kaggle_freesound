@@ -1,4 +1,7 @@
 #!/usr/bin/python3.6
+""" Data loader which returns 112 MFCC components.
+Also it uses different normalization: min to max -> 0 to 1.
+Additionally, implements all the data loading functions. """
 
 import glob, multiprocessing, os, pickle, sys
 from typing import *
@@ -12,9 +15,8 @@ from tqdm import tqdm
 from sklearn.preprocessing import LabelBinarizer
 
 
-DATA_VERSION  = 0x11
-
-NpArray = Any
+DATA_VERSION    = 0x11
+NpArray         = Any
 
 TOPK            = 3
 NUM_CLASSES     = 41
@@ -22,7 +24,7 @@ SAMPLE_RATE     = 44100
 
 
 # Data parameters
-NUM_MFCC_ROWS       = 120
+NUM_MFCC_ROWS       = 112
 SILENCE_THRESHOLD   = 1e-1
 MIN_DURATION        = 0.5
 MAX_ALLOWED_SILENCE = 0.2
@@ -203,104 +205,6 @@ def get_random_eraser(p: float = 0.5, s_l: float = 0.02, s_h: float = 0.4,
 
     return eraser
 
-class MixupGenerator(keras.utils.Sequence):
-    """ Implements mixup of audio clips. """
-    def __init__(self, X_train: NpArray, y_train: NpArray, batch_size: int = 32,
-                 alpha: float = 0.2, shuffle: bool = True, datagen: Any = None) -> None:
-        self.X_train = X_train
-        self.y_train = y_train
-        self.batch_size = batch_size
-        self.alpha = alpha
-        self.shuffle = shuffle
-        self.sample_num = len(X_train)
-        self.datagen = datagen
-        self.indexes = self.__get_exploration_order()
-
-    def __get_exploration_order(self) -> NpArray:
-        indexes = np.arange(self.sample_num)
-
-        if self.shuffle:
-            np.random.shuffle(indexes)
-
-        return indexes
-
-    def __len__(self) -> int:
-        return int(len(self.indexes) // (self.batch_size * 2))
-
-    def __getitem__(self, i: int) -> np.array:
-        batch_ids = self.indexes[i * self.batch_size * 2 :
-                                 (i + 1) * self.batch_size * 2]
-        h, w = self.X_train.shape[1], self.X_train.shape[2]
-
-        l = np.random.beta(self.alpha, self.alpha, self.batch_size)
-        X_l = l.reshape(self.batch_size, 1, 1, 1)
-        y_l = l.reshape(self.batch_size, 1)
-
-        X1 = self.X_train[batch_ids[:self.batch_size]]
-        X2 = self.X_train[batch_ids[self.batch_size:]]
-        X = X1 * X_l + X2 * (1 - X_l)
-
-        if self.datagen:
-            for i in range(self.batch_size):
-                X[i] = self.datagen.random_transform(X[i])
-
-        if isinstance(self.y_train, list):
-            y = []
-
-            for y_train_ in self.y_train:
-                y1 = y_train_[batch_ids[:self.batch_size]]
-                y2 = y_train_[batch_ids[self.batch_size:]]
-                y.append(y1 * y_l + y2 * (1 - y_l))
-        else:
-            y1 = self.y_train[batch_ids[:self.batch_size]]
-            y2 = self.y_train[batch_ids[self.batch_size:]]
-            y = y1 * y_l + y2 * (1 - y_l)
-
-        return X, y
-
-class AugGenerator(keras.utils.Sequence):
-    """ Implements augmentations of audio clips. """
-    def __init__(self, x_train: NpArray, y_train: NpArray, batch_size: int = 32,
-                 alpha: float = 0.2, shuffle: bool = True, datagen: Any = None) -> None:
-        self.x_train = x_train
-        print("x_train", self.x_train.shape)
-        self.y_train = y_train
-        self.batch_size = batch_size
-        self.alpha = alpha
-        self.shuffle = shuffle
-        self.sample_num = len(x_train)
-        self.datagen = datagen
-        self.indexes = self.__get_exploration_order()
-
-    def __get_exploration_order(self) -> NpArray:
-        indexes = np.arange(self.sample_num)
-
-        if self.shuffle:
-            np.random.shuffle(indexes)
-
-        return indexes
-
-    def __len__(self) -> int:
-        return int(np.ceil(len(self.indexes) / self.batch_size))
-
-    def __getitem__(self, i: int) -> Tuple[NpArray, NpArray]:
-        batch_ids = self.indexes[i * self.batch_size : (i + 1) * self.batch_size]
-        x = self.x_train[batch_ids]
-
-        if self.datagen:
-            for i in range(batch_ids.size):
-                x[i] = self.datagen.random_transform(x[i])
-
-        if isinstance(self.y_train, list):
-            y: List[float] = []
-
-            for y_train_ in self.y_train:
-                y = y_train_[batch_ids]
-        else:
-            y = self.y_train[batch_ids]
-
-        return x, y
-
 
 def find_files(path: str) -> List[str]:
     """ Reads whole dataset into np.array. """
@@ -374,17 +278,15 @@ def load_data(train_idx: NpArray, val_idx: NpArray) -> \
     x_test, clips_per_sample = build_test_dataset(x_test)
 
     x_joined = np.concatenate([x_train, x_val])
-    mean, std = np.mean(x_joined), np.std(x_joined)
-    x_train = (x_train - mean) / std
-    x_val = (x_val - mean) / std
-    x_test = (x_test - mean) / std
-
-    x_train = np.expand_dims(x_train, -1)
-    x_val = np.expand_dims(x_val, -1)
-    x_test = np.expand_dims(x_test, -1)
+    min, max = np.min(x_joined), np.max(x_joined)
+    x_train = (x_train - min) / (max - min)
+    x_val = (x_val - min) / (max - min)
+    x_test = (x_test - min) / (max - min)
 
     y_train = label_binarizer.transform(y_train)
     y_val = label_binarizer.transform(y_val)
+
+    x_train = x_train[:, :NUM_MFCC_ROWS, :]
 
     print("x_train.shape", x_train.shape, "y_train.shape", y_train.shape)
     print("x_val.shape", x_val.shape, "y_val.shape", y_val.shape)

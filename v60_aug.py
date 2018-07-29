@@ -12,8 +12,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.model_selection import StratifiedKFold
 from sklearn.utils import class_weight
 
-from data import load_dataset
-from data_v1_1 import get_random_eraser, MixupGenerator, AugGenerator
+from data_v1_1 import load_dataset, get_random_eraser, MixupGenerator, AugGenerator
 
 
 NpArray = Any
@@ -321,7 +320,8 @@ def predict(x_test: NpArray, label_binarizer: Any, clips_per_sample: List[int],
 
     for count in clips_per_sample:
         if count != 0:
-            y_merged.append(merge_predictions(y_test[pos : pos+count], "max", 0))
+            y_merged.append(merge_predictions(y_test[pos : pos + count],
+                                              "geom_mean", 0))
         else:
             y_merged.append(np.zeros_like(y_merged[0]))
 

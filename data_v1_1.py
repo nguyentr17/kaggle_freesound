@@ -1,4 +1,5 @@
 #!/usr/bin/python3.6
+""" Data loader which returns 120 MFCC components. """
 
 import glob, multiprocessing, os, sys
 from typing import *
