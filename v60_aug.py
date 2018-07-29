@@ -78,8 +78,8 @@ def load_data(train_idx: NpArray, val_idx: NpArray) -> \
     """ Loads all data. """
     train_df = pd.read_csv("../data/train.csv", index_col="fname")
 
-    train_cache = "../output/train_cache_v%02d.pkl" % DATA_VERSION
-    test_cache = "../output/test_cache_v%02d.pkl" % DATA_VERSION
+    train_cache = "../output/train_cache_v%02x.pkl" % DATA_VERSION
+    test_cache = "../output/test_cache_v%02x.pkl" % DATA_VERSION
 
     print("reading train dataset")
     if os.path.exists(train_cache):
