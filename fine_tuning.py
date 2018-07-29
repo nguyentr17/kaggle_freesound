@@ -8,9 +8,11 @@ import numpy as np, pandas as pd, scipy as sp
 import keras
 
 from sklearn.preprocessing import LabelBinarizer
-from sklearn.model_selection import train_test_split, KFold
+from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedKFold
+from sklearn.utils import class_weight
 
-from data import load_dataset, DATA_VERSION
+from data_v1 import load_dataset, DATA_VERSION
 from data_v1_1 import get_random_eraser, MixupGenerator, AugGenerator
 
 
@@ -243,17 +245,18 @@ def train(model_name: str, name: str = "nofolds") -> None:
     # time_stopping = TimedStopping(timeout=15*60*60, verbose=1)
 
     datagen = keras.preprocessing.image.ImageDataGenerator(
-        width_shift_range=0.4,  # randomly shift images horizontally (fraction of total width)
-        horizontal_flip=True,   # randomly flip images
+        width_shift_range=0,  # randomly shift images horizontally (fraction of total width)
+        horizontal_flip=False,   # randomly flip images
         preprocessing_function=
             get_random_eraser(v_l=np.min(x_train), v_h=np.max(x_train)) # random eraser
     )
-    # mixupgen = MixupGenerator(x_train, y_train, alpha=1.0, batch_size=BATCH_SIZE,
-    #                           datagen=datagen)
-    augdatagen = AugGenerator(x_train, y_train, alpha=1.0, batch_size=BATCH_SIZE,
-                              datagen=None, shuffle=False)
 
-    model.fit_generator(augdatagen,
+    datagen = MixupGenerator(x_train, y_train, alpha=1.0, batch_size=BATCH_SIZE,
+                              datagen=datagen)
+    # datagen = AugGenerator(x_train, y_train, alpha=1.0, batch_size=BATCH_SIZE,
+    #                           datagen=None, shuffle=False)
+
+    model.fit_generator(datagen,
                         epochs=NUM_EPOCHS, verbose=1,
                         validation_data=[x_val, y_val],
                         use_multiprocessing=True, workers=12,
@@ -312,8 +315,16 @@ if __name__ == "__main__":
     name = os.path.basename(sys.argv[1])
     name = os.path.splitext(name)[0]
 
+    train_labels = stratify=train_df["label"]
+    class_weight = class_weight.compute_class_weight('balanced',
+                       np.unique(train_labels), train_labels)
+    class_weight = {i: w for i, w in enumerate(class_weight)}
+    print(class_weight)
+
     if not ENABLE_KFOLD:
-        train_idx, val_idx = train_test_split(train_indices, shuffle=False,
+        train_idx, val_idx = train_test_split(train_indices,
+                                              stratify=train_labels,
+                                              random_state=0,
                                               test_size=TEST_SIZE)
         x_train, y_train, x_val, y_val, x_test, label_binarizer, \
             clips_per_sample = load_data(train_idx, val_idx)
@@ -323,10 +334,10 @@ if __name__ == "__main__":
 
         pred = predict(x_test, label_binarizer, clips_per_sample, name)
     else:
-        kf = KFold(n_splits=KFOLDS, shuffle=False)
+        kf = StratifiedKFold(n_splits=KFOLDS, shuffle=False)
         pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
 
-        for k, (train_idx, val_idx) in enumerate(kf.split(train_indices)):
+        for k, (train_idx, val_idx) in enumerate(kf.split(train_indices, train_labels)):
             print("fold %d ==============================================" % k)
 
             x_train, y_train, x_val, y_val, x_test, label_binarizer, \

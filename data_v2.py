@@ -1,4 +1,5 @@
 #!/usr/bin/python3.6
+""" Returns FFT of data. """
 
 import bisect, glob, itertools, multiprocessing, pickle, os, sys
 from typing import *

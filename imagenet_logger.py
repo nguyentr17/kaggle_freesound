@@ -42,9 +42,3 @@ class AverageMeter(object):
         self.sum += val * n
         self.count += n
         self.avg = self.sum / self.count
-
-
-# def rmse(output: Any, target: Any) -> float:
-#     """ Computes the metric. """
-#     import torch
-#     return (torch.sum((output - target) ** 2).item() / target.size(0)) ** 0.5

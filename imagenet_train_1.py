@@ -177,8 +177,6 @@ def validate(val_loader: Any, model: Any, criterion: Any,
 
 def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
                    val_scores: Any, fold: int) -> None:
-    logger.info('searching images')
-
     train_dataset = MixupGenerator(train_images, train_scores)
     val_dataset = MixupGenerator(val_images, val_scores)
 
@@ -221,7 +219,7 @@ def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
 
     if opt.TRAIN.RESUME is None:
         last_epoch = 0
-        logger.info("training will start from Epoch {}".format(last_epoch+1))
+        logger.info("training will start from epoch {}".format(last_epoch+1))
     else:
         last_checkpoint = torch.load(opt.TRAIN.RESUME)
         assert(last_checkpoint['arch']==opt.MODEL.ARCH)
@@ -297,7 +295,7 @@ def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
     plt.grid(linestyle=':')
     plt.xlabel('epoch')
     plt.ylabel('MAP@3')
-    plt.title('Loss over epoch')
+    plt.title('loss over epoch')
     plt.savefig(osp.join(opt.EXPERIMENT.DIR, 'loss_curves_%d.png' % fold))
 
     best_epoch = np.argmin(test_metrics)
@@ -325,10 +323,10 @@ if __name__ == "__main__":
         os.makedirs(opt.EXPERIMENT.DIR)
 
     logger = create_logger(opt.LOG.LOG_FILE)
-    logger.info('\n\nOptions:')
+    logger.info('\n\noptions:')
     logger.info(pprint.pformat(opt))
 
-    msg = 'Use time as random seed: {}'.format(opt.TRAIN.SEED)
+    msg = 'use time as random seed: {}'.format(opt.TRAIN.SEED)
     logger.info(msg)
 
     # transformation of data
