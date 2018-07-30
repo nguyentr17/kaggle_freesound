@@ -38,12 +38,12 @@ KFOLDS = 10
 opt = edict()
 
 opt.MODEL = edict()
-opt.MODEL.ARCH = 'resnet50'
+opt.MODEL.ARCH = 'resnet18'
 opt.MODEL.PRETRAINED = True
 opt.MODEL.INPUT_SIZE = 224
 
 opt.EXPERIMENT = edict()
-opt.EXPERIMENT.CODENAME = '1'
+opt.EXPERIMENT.CODENAME = '2'
 opt.EXPERIMENT.TASK = 'finetune'
 opt.EXPERIMENT.DIR = osp.join("../imagenet", opt.EXPERIMENT.CODENAME)
 
@@ -230,7 +230,7 @@ def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
         last_epoch = last_checkpoint['epoch']
         logger.info("training will be resumed from epoch {}".format(last_checkpoint['epoch']))
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = nn.CrossEntropyLoss(class_weights)
 #     last_fc = nn.Linear(in_features=opt.NUM_FEATURES, out_features=1).cuda()
 #     relu = nn.ReLU(inplace=True).cuda()
 
@@ -344,10 +344,10 @@ if __name__ == "__main__":
     test_idx = [os.path.basename(f) for f in test_files]
 
     train_labels = stratify=train_df["label"]
-    class_weight = class_weight.compute_class_weight('balanced',
+    class_weights = class_weight.compute_class_weight('balanced',
                        np.unique(train_labels), train_labels)
-    class_weight = {i: w for i, w in enumerate(class_weight)}
-    print("class weights:", class_weight)
+    print("class weights:", class_weights)
+    class_weights = torch.tensor(class_weights, dtype=torch.float).cuda()
 
     kf = StratifiedKFold(n_splits=KFOLDS, shuffle=False)
     pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
