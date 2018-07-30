@@ -29,7 +29,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.model_selection import StratifiedKFold
 from sklearn.utils import class_weight
 
-from data_v1_2 import find_files, NUM_CLASSES, load_data, map3_metric
+from data_v5 import find_files, NUM_CLASSES, load_data, map3_metric
 
 
 SEED = 0
