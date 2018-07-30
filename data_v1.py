@@ -9,10 +9,11 @@ import librosa
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import LabelBinarizer
 from tqdm import tqdm
+from sklearn.utils import class_weight
 
-NpArray = Any
 
-DATA_VERSION = 1
+NpArray             = Any
+DATA_VERSION        = 1
 
 TOPK                = 3
 SAMPLE_RATE         = 44100
@@ -277,3 +278,26 @@ def map3_metric(predict: NpArray, ground_truth: NpArray) -> float:
 
     assert(len(results) == predict.shape[0])
     return np.mean(results)
+
+def load_everything() -> Any:
+    """ Loads train and test sets. """
+    cache_path = "../output/csv_cache_v%02d.pkl" % DATA_VERSION
+
+    if not os.path.exists(cache_path):
+        train_df = pd.read_csv("../data/train.csv", index_col="fname")
+        train_indices = range(train_df.shape[0])
+
+        test_files = find_files("../data/audio_test/")
+        test_idx = [os.path.basename(f) for f in test_files]
+
+        train_labels = train_df["label"]
+        class_weights = class_weight.compute_class_weight('balanced',
+                           np.unique(train_labels), train_labels)
+        class_weights = {i: w for i, w in enumerate(class_weights)}
+        print(class_weights)
+
+        pickle.dump((train_indices, test_idx, train_labels, class_weights),
+                    open(cache_path, "wb"))
+        return train_indices, test_idx, train_labels, class_weights
+    else:
+        return pickle.load(open(cache_path, "rb"))

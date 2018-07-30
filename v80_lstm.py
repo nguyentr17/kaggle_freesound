@@ -8,9 +8,8 @@ import keras
 
 from sklearn.model_selection import train_test_split, KFold
 from sklearn.model_selection import StratifiedKFold
-from sklearn.utils import class_weight
 
-from data_v1 import find_files, load_data, map3_metric
+from data_v1 import load_everything, load_data, map3_metric
 
 
 CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0][1:]
@@ -19,7 +18,7 @@ NpArray         = Any
 TOPK            = 3
 
 PREDICT_ONLY    = False
-ENABLE_KFOLD    = False
+ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
 KFOLDS          = 10
 
@@ -162,17 +161,7 @@ def predict(x_test: NpArray, label_binarizer: Any, clips_per_sample: List[int],
     return y_test
 
 if __name__ == "__main__":
-    train_df = pd.read_csv("../data/train.csv", index_col="fname")
-    train_indices = range(train_df.shape[0])
-
-    test_files = find_files("../data/audio_test/")
-    test_idx = [os.path.basename(f) for f in test_files]
-
-    train_labels = stratify=train_df["label"]
-    class_weights = class_weight.compute_class_weight('balanced',
-                       np.unique(train_labels), train_labels)
-    class_weights = {i: w for i, w in enumerate(class_weights)}
-    print(class_weights)
+    train_indices, test_idx, train_labels, class_weights = load_everything()
 
     if not ENABLE_KFOLD:
         train_idx, val_idx = train_test_split(train_indices,
