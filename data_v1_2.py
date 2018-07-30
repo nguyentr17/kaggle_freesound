@@ -288,6 +288,9 @@ def load_data(train_idx: NpArray, val_idx: NpArray) -> \
 
     x_train = x_train[:, :NUM_MFCC_ROWS, :]
 
+    y_train = np.argmax(y_train, axis=1)
+    y_val = np.argmax(y_val, axis=1)
+
     print("x_train.shape", x_train.shape, "y_train.shape", y_train.shape)
     print("x_val.shape", x_val.shape, "y_val.shape", y_val.shape)
 

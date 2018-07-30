@@ -313,7 +313,6 @@ if __name__ == "__main__":
         kf = StratifiedKFold(n_splits=KFOLDS, shuffle=False)
         pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
 
-        # for k, (train_idx, val_idx) in enumerate(kf.split(train_indices)):
         for k, (train_idx, val_idx) in enumerate(kf.split(train_indices, train_labels)):
             print("fold %d ==============================================" % k)
 

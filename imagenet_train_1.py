@@ -19,7 +19,7 @@ from sklearn.model_selection import KFold
 import matplotlib.pyplot as plt
 
 from imagenet_logger import create_logger, AverageMeter
-from imagenet_datagen import MixupGenerator
+from imagenet_datagen import DataGenerator
 
 import torchvision.models as models
 import pretrainedmodels
@@ -177,11 +177,12 @@ def validate(val_loader: Any, model: Any, criterion: Any,
 
 def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
                    val_scores: Any, fold: int) -> None:
-    train_dataset = MixupGenerator(train_images, train_scores)
-    val_dataset = MixupGenerator(val_images, val_scores)
+    train_dataset = DataGenerator(train_images, train_scores,
+                                   transform=transform)
+    val_dataset = DataGenerator(val_images, val_scores)
 
-    logger.info('{} batches in train dataset'.format(len(train_dataset)))
-    logger.info('{} batches in validation dataset'.format(len(val_dataset)))
+    logger.info('{} samples in train dataset'.format(len(train_dataset)))
+    logger.info('{} samples in validation dataset'.format(len(val_dataset)))
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=opt.TRAIN.BATCH_SIZE, shuffle=opt.TRAIN.SHUFFLE, num_workers=opt.TRAIN.WORKERS)
@@ -199,7 +200,7 @@ def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
     if opt.MODEL.ARCH.startswith('resnet'):
         assert(opt.MODEL.INPUT_SIZE % 32 == 0)
         model.avgpool = nn.AvgPool2d(opt.MODEL.INPUT_SIZE // 32, stride=1)
-        model.fc = nn.Linear(model.fc.in_features, opt.NUM_CLASSES)
+        model.fc = nn.Linear(model.fc.in_features * 5, opt.NUM_CLASSES)
         model = torch.nn.DataParallel(model).cuda()
     elif opt.MODEL.ARCH.startswith('se'):
         assert(opt.MODEL.INPUT_SIZE % 32 == 0)
@@ -330,12 +331,12 @@ if __name__ == "__main__":
     logger.info(msg)
 
     # transformation of data
-    # transform = transforms.Compose([
-    #     transforms.Resize((opt.MODEL.INPUT_SIZE)), # smaller edge
-    #     transforms.ToTensor(),
-    #     transforms.Normalize(mean = [0.485, 0.456, 0.406],
-    #                           std = [0.229, 0.224, 0.225]),
-    # ])
+    transform = transforms.Compose([
+        transforms.Resize((opt.MODEL.INPUT_SIZE)), # smaller edge
+        transforms.ToTensor(),
+        transforms.Normalize(mean = [0.485, 0.456, 0.406],
+                              std = [0.229, 0.224, 0.225]),
+    ])
 
     train_df = pd.read_csv("../data/train.csv", index_col="fname")
     train_indices = range(train_df.shape[0])
@@ -357,6 +358,7 @@ if __name__ == "__main__":
 
         x_train, y_train, x_val, y_val, x_test, label_binarizer, \
             clips_per_sample = load_data(train_idx, val_idx)
+
         name = "fold_%d" % k
 
         train_one_fold(x_train, y_train, x_val, y_val, k)
