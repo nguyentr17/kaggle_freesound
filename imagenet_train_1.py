@@ -177,6 +177,19 @@ def validate(val_loader: Any, model: Any, criterion: Any,
 
 def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
                    val_scores: Any, fold: int) -> None:
+    # create model
+    logger.info("=> using pre-trained model '{}'".format(opt.MODEL.ARCH))
+    if opt.MODEL.ARCH.startswith('resnet'):
+        model = models.__dict__[opt.MODEL.ARCH](pretrained=True)
+    else:
+        model = pretrainedmodels.__dict__[opt.MODEL.ARCH](pretrained='imagenet')
+
+    # for child in list(model.children())[:-1]:
+    #     print("freezing layer:", child)
+    #
+    #     for param in child.parameters():
+    #         param.requires_grad = False
+
     train_dataset = DataGenerator(train_images, train_scores, transform=transform)
     val_dataset = DataGenerator(val_images, val_scores, transform=transform)
 
@@ -188,13 +201,6 @@ def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
 
     test_loader = torch.utils.data.DataLoader(
         val_dataset, batch_size=opt.TRAIN.BATCH_SIZE, shuffle=False, num_workers=opt.TRAIN.WORKERS)
-
-    # create model
-    logger.info("=> using pre-trained model '{}'".format(opt.MODEL.ARCH))
-    if opt.MODEL.ARCH.startswith('resnet'):
-        model = models.__dict__[opt.MODEL.ARCH](pretrained=True)
-    else:
-        model = pretrainedmodels.__dict__[opt.MODEL.ARCH](pretrained='imagenet')
 
     if opt.MODEL.ARCH.startswith('resnet'):
         assert(opt.MODEL.INPUT_SIZE % 32 == 0)
@@ -214,7 +220,8 @@ def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
     else:
         raise NotImplementedError
 
-    optimizer = optim.Adam(model.module.parameters(), opt.TRAIN.LEARNING_RATE)
+    params = filter(lambda p: p.requires_grad, model.module.parameters())
+    optimizer = optim.Adam(params, opt.TRAIN.LEARNING_RATE)
     lr_scheduler = MultiStepLR(optimizer, opt.TRAIN.LR_MILESTONES, gamma=opt.TRAIN.LR_GAMMA, last_epoch=-1)
 
     if opt.TRAIN.RESUME is None:
