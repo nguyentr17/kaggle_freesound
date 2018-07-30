@@ -302,8 +302,6 @@ def map3_metric(predict: NpArray, ground_truth: NpArray) -> float:
     assert(predict.shape[0] == ground_truth.shape[0])
 
     for actual, pred in zip(ground_truth, predict):
-        actual = np.argmax(actual)
-
         pred = np.argsort(pred)[-TOPK:]
         pred = np.flip(pred, axis=0)
 

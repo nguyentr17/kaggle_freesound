@@ -177,9 +177,8 @@ def validate(val_loader: Any, model: Any, criterion: Any,
 
 def train_one_fold(train_images: Any, train_scores: Any, val_images: Any,
                    val_scores: Any, fold: int) -> None:
-    train_dataset = DataGenerator(train_images, train_scores,
-                                   transform=transform)
-    val_dataset = DataGenerator(val_images, val_scores)
+    train_dataset = DataGenerator(train_images, train_scores, transform=transform)
+    val_dataset = DataGenerator(val_images, val_scores, transform=transform)
 
     logger.info('{} samples in train dataset'.format(len(train_dataset)))
     logger.info('{} samples in validation dataset'.format(len(val_dataset)))
