@@ -80,14 +80,20 @@ def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
     shape = x_train.shape
     x = inp = keras.layers.Input(shape=shape[1:])
 
+    x = keras.layers.Permute((2, 1))(x)
+
     x = keras.layers.Convolution1D(64, 1)(x)
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
 
-    # x = keras.layers.Reshape((173, 32))(x)
-    x = keras.layers.LSTM(100)(x)
+    x = keras.layers.LSTM(128)(x)
 
-    x = keras.layers.Dense(64)(x)
+    reg = None # keras.regularizers.l2(10 ** 4.5)
+    x = keras.layers.Dense(128,
+                           kernel_regularizer=reg,
+                           bias_regularizer=reg,
+                           activity_regularizer=reg,
+                           )(x)
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
 
