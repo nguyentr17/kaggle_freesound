@@ -20,14 +20,14 @@ TOPK            = 3
 PREDICT_ONLY    = False
 ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
-KFOLDS          = 10
+KFOLDS          = 7
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
 
 # Network hyperparameters
 BATCH_SIZE      = 32
-NUM_EPOCHS      = 70
+NUM_EPOCHS      = 30
 
 
 def get_model_path(name: str) -> str:
@@ -51,7 +51,7 @@ class Map3Metric(keras.callbacks.Callback):
 
         self.last_best_map3 = 0.0
         self.last_best_epoch = 0
-        self.max_epochs = 15
+        self.max_epochs = 10
         self.min_threshold = 0.001
 
     def on_epoch_end(self, epoch: int, logs: Any = {}) -> None:
@@ -107,7 +107,7 @@ def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
 
     map3 = Map3Metric(x_val, y_val, name)
     reduce_lr = keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
-                    factor=0.33, patience=7, verbose=1, min_lr=3e-6)
+                    factor=0.33, patience=4, verbose=1, min_lr=3e-6)
 
     model.fit(x_train, y_train, batch_size=BATCH_SIZE, epochs=NUM_EPOCHS,
               verbose=1, validation_data=[x_val, y_val],
@@ -142,7 +142,7 @@ def predict(x_test: NpArray, label_binarizer: Any, clips_per_sample: List[int],
     """ Predicts results on test, using the best model. """
     print("predicting results")
     model = keras.models.load_model(get_best_model_path(model_name))
-    y_test = model.predict(x_test)
+    y_test = model.predict(x_test, verbose=1)
     print("y_test.shape after predict", y_test.shape)
 
     pos = 0
