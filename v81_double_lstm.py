@@ -17,7 +17,7 @@ CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0][1:]
 NpArray         = Any
 TOPK            = 3
 
-PREDICT_ONLY    = True
+PREDICT_ONLY    = False
 ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
 KFOLDS          = 10
@@ -85,6 +85,7 @@ def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
 
+    x = keras.layers.LSTM(128, return_sequences=True)(x)
     x = keras.layers.LSTM(128)(x)
 
     reg = None # keras.regularizers.l2(10 ** 4.5)
