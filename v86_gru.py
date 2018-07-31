@@ -17,7 +17,7 @@ CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0][1:]
 NpArray         = Any
 TOPK            = 3
 
-PREDICT_ONLY    = False
+PREDICT_ONLY    = True
 ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
 KFOLDS          = 10
@@ -74,7 +74,7 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.stop_training = True
             print("stopping training because MAP@3 growth has stopped")
 
-def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
+def train_model(name: str ="nofolds") -> float:
     """ Creates model, trains it and saves it to the file. """
     shape = x_train.shape
     x = inp = keras.layers.Input(shape=shape[1:])
@@ -146,7 +146,7 @@ def predict(x_test: NpArray, label_binarizer: Any, clips_per_sample: List[int],
     """ Predicts results on test, using the best model. """
     print("predicting results")
     model = keras.models.load_model(get_best_model_path(model_name))
-    y_test = model.predict(x_test)
+    y_test = model.predict(x_test, verbose=1)
     print("y_test.shape after predict", y_test.shape)
 
     pos = 0
@@ -176,9 +176,7 @@ if __name__ == "__main__":
             clips_per_sample = load_data(train_idx, val_idx)
 
         if not PREDICT_ONLY:
-            params: Dict[str, Any] = {
-            }
-            train_model(params)
+            train_model()
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
     else:
@@ -193,9 +191,7 @@ if __name__ == "__main__":
             name = "fold_%d" % k
 
             if not PREDICT_ONLY:
-                params = {
-                }
-                train_model(params, name=name)
+                train_model(name=name)
 
             pred[:, k, :] = predict(x_test, label_binarizer, clips_per_sample, name)
 
