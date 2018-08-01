@@ -22,7 +22,7 @@ TOPK            = 3
 PREDICT_ONLY    = False
 ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
-KFOLDS          = 10
+KFOLDS          = 7
 
 NUM_CLASSES     = 41
 SAMPLE_RATE     = 44100
@@ -166,7 +166,7 @@ def out_of_fold_predict(model_name: str) -> NpArray:
     folds = list(glob.glob(f"../models/{model_name}__fold_*_best.hdf5"))
     k_folds = len(folds)
     print(f"predicting model={model_name}, k_folds={k_folds}")
-    assert(k_folds == 10 or k_folds == 20)
+    assert(k_folds == 10 or k_folds == 20 or k_folds == 7)
 
     cache_path = f"../output/predict_{model_name}.pkl"
     if os.path.exists(cache_path):
@@ -203,21 +203,32 @@ if __name__ == "__main__":
     print(f"v71: {v71.shape}")
     v80 = out_of_fold_predict("80_lstm")
     print(f"v80: {v80.shape}")
+    v85 = out_of_fold_predict("85_gru")
+    print(f"v85: {v85.shape}")
     v86 = out_of_fold_predict("86_gru")
     print(f"v86: {v86.shape}")
 
     oof_train_x = np.concatenate([v55, v71, v80, v86], axis=1)
     print(f"oof data shape: {oof_train_x.shape}")
 
+    v55_y = np.load("../predictions/55_balanced.npz")["predict"]
+    print(f"v55_y: {v55_y.shape}")
+    v71_y = np.load("../predictions/71_more_folds.npz")["predict"]
+    v80_y = np.load("../predictions/80_lstm.npz")["predict"]
+    v85_y = np.load("../predictions/85_gru.npz")["predict"]
+    v86_y = np.load("../predictions/86_gru.npz")["predict"]
+
     kf = StratifiedKFold(n_splits=KFOLDS, shuffle=False)
     pred = np.zeros((len(test_idx), KFOLDS, NUM_CLASSES))
 
     for k, (train_idx, val_idx) in enumerate(kf.split(train_indices, train_labels)):
         print("fold %d ==============================================" % k)
-
-        # x_train, y_train, x_val, y_val, x_test, label_binarizer, \
-        #     clips_per_sample = load_data(train_idx, val_idx)
         name = "fold_%d" % k
+
+        x_train, y_train, x_val, y_val, x_test, label_binarizer, \
+            clips_per_sample = load_data(train_idx, val_idx)
+
+        print("y_train", y_train.shape, "y_val", y_val.shape)
 
         x_train = oof_train_x[train_idx]
         y_train = y_train[train_idx]

@@ -17,7 +17,7 @@ CODE_VERSION    = os.path.splitext(os.path.basename(__file__))[0][1:]
 NpArray         = Any
 TOPK            = 3
 
-PREDICT_ONLY    = False
+PREDICT_ONLY    = True
 ENABLE_KFOLD    = True
 TEST_SIZE       = 0.2
 KFOLDS          = 7
