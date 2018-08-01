@@ -92,12 +92,7 @@ def train_model(name: str ="nofolds") -> float:
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Dropout(0.1)(x)
 
-    reg = None # keras.regularizers.l2(10 ** 4.5)
-    x = keras.layers.Dense(128,
-                           kernel_regularizer=reg,
-                           bias_regularizer=reg,
-                           activity_regularizer=reg,
-                           )(x)
+    x = keras.layers.Dense(128,)(x)
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
 

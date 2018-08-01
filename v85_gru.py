@@ -74,7 +74,7 @@ class Map3Metric(keras.callbacks.Callback):
             self.model.stop_training = True
             print("stopping training because MAP@3 growth has stopped")
 
-def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
+def train_model(name: str ="nofolds") -> float:
     """ Creates model, trains it and saves it to the file. """
     shape = x_train.shape
     x = inp = keras.layers.Input(shape=shape[1:])
@@ -88,12 +88,7 @@ def train_model(params: Dict[str, Any], name: str ="nofolds") -> float:
     x = keras.layers.GRU(128, return_sequences=True)(x)
     x = keras.layers.GRU(128)(x)
 
-    reg = None # keras.regularizers.l2(10 ** 4.5)
-    x = keras.layers.Dense(128,
-                           kernel_regularizer=reg,
-                           bias_regularizer=reg,
-                           activity_regularizer=reg,
-                           )(x)
+    x = keras.layers.Dense(128,)(x)
     x = keras.layers.BatchNormalization()(x)
     x = keras.layers.Activation("relu")(x)
 
@@ -172,9 +167,7 @@ if __name__ == "__main__":
             clips_per_sample = load_data(train_idx, val_idx)
 
         if not PREDICT_ONLY:
-            params: Dict[str, Any] = {
-            }
-            train_model(params)
+            train_model()
 
         pred = predict(x_test, label_binarizer, clips_per_sample, "nofolds")
     else:
@@ -189,9 +182,7 @@ if __name__ == "__main__":
             name = "fold_%d" % k
 
             if not PREDICT_ONLY:
-                params = {
-                }
-                train_model(params, name=name)
+                train_model(name=name)
 
             pred[:, k, :] = predict(x_test, label_binarizer, clips_per_sample, name)
 
